@@ -5,8 +5,9 @@ from typing import Optional
 
 from app.fb_client import FBAPIError
 from app.database import get_db
-from app.models import OperationLog
+from app.models import OperationLog, User
 from app.resolver import get_client_for_account
+from app.deps import get_current_user
 
 router = APIRouter(prefix="/api", tags=["campaigns"])
 
@@ -32,8 +33,8 @@ def _budget_fields(obj: dict) -> dict:
 
 
 @router.get("/accounts/{account_id}/campaigns/overview")
-async def campaigns_overview(account_id: str, date_preset: str = "last_30d", db: Session = Depends(get_db)):
-    client = await get_client_for_account(account_id, db)
+async def campaigns_overview(account_id: str, date_preset: str = "last_30d", db: Session = Depends(get_db), user: User = Depends(get_current_user)):
+    client = await get_client_for_account(account_id, db, user)
     try:
         campaigns_res = await client.list_campaigns(account_id)
         metrics_map = await client.get_insights_by_level(account_id, "campaign", date_preset)
@@ -48,9 +49,9 @@ async def campaigns_overview(account_id: str, date_preset: str = "last_30d", db:
 
 @router.get("/accounts/{account_id}/adsets/overview")
 async def adsets_overview(
-    account_id: str, campaign_id: str, date_preset: str = "last_30d", db: Session = Depends(get_db)
+    account_id: str, campaign_id: str, date_preset: str = "last_30d", db: Session = Depends(get_db), user: User = Depends(get_current_user)
 ):
-    client = await get_client_for_account(account_id, db)
+    client = await get_client_for_account(account_id, db, user)
     try:
         adsets_res = await client.list_adsets(account_id, campaign_id)
         metrics_map = await client.get_insights_by_level(
@@ -67,9 +68,9 @@ async def adsets_overview(
 
 @router.get("/accounts/{account_id}/ads/overview")
 async def ads_overview(
-    account_id: str, adset_id: str, date_preset: str = "last_30d", db: Session = Depends(get_db)
+    account_id: str, adset_id: str, date_preset: str = "last_30d", db: Session = Depends(get_db), user: User = Depends(get_current_user)
 ):
-    client = await get_client_for_account(account_id, db)
+    client = await get_client_for_account(account_id, db, user)
     try:
         ads_res = await client.list_ads(account_id, adset_id)
         metrics_map = await client.get_insights_by_level(account_id, "ad", date_preset, "adset.id", adset_id)
@@ -84,8 +85,8 @@ async def ads_overview(
 
 # ---------------- Campaign ----------------
 @router.get("/accounts/{account_id}/campaigns")
-async def list_campaigns(account_id: str, db: Session = Depends(get_db)):
-    client = await get_client_for_account(account_id, db)
+async def list_campaigns(account_id: str, db: Session = Depends(get_db), user: User = Depends(get_current_user)):
+    client = await get_client_for_account(account_id, db, user)
     try:
         return await client.list_campaigns(account_id)
     except FBAPIError as e:
@@ -100,8 +101,8 @@ class CampaignIn(BaseModel):
 
 
 @router.post("/accounts/{account_id}/campaigns")
-async def create_campaign(account_id: str, body: CampaignIn, db: Session = Depends(get_db)):
-    client = await get_client_for_account(account_id, db)
+async def create_campaign(account_id: str, body: CampaignIn, db: Session = Depends(get_db), user: User = Depends(get_current_user)):
+    client = await get_client_for_account(account_id, db, user)
     try:
         result = await client.create_campaign(
             account_id, body.name, body.objective, body.status, body.special_ad_categories
@@ -115,8 +116,8 @@ async def create_campaign(account_id: str, body: CampaignIn, db: Session = Depen
 
 # ---------------- AdSet ----------------
 @router.get("/accounts/{account_id}/adsets")
-async def list_adsets(account_id: str, campaign_id: Optional[str] = None, db: Session = Depends(get_db)):
-    client = await get_client_for_account(account_id, db)
+async def list_adsets(account_id: str, campaign_id: Optional[str] = None, db: Session = Depends(get_db), user: User = Depends(get_current_user)):
+    client = await get_client_for_account(account_id, db, user)
     try:
         return await client.list_adsets(account_id, campaign_id)
     except FBAPIError as e:
@@ -139,8 +140,8 @@ class AdSetIn(BaseModel):
 
 
 @router.post("/accounts/{account_id}/adsets")
-async def create_adset(account_id: str, body: AdSetIn, db: Session = Depends(get_db)):
-    client = await get_client_for_account(account_id, db)
+async def create_adset(account_id: str, body: AdSetIn, db: Session = Depends(get_db), user: User = Depends(get_current_user)):
+    client = await get_client_for_account(account_id, db, user)
     targeting = {
         "geo_locations": {"countries": body.countries},
         "age_min": body.age_min,
@@ -180,8 +181,8 @@ class CreativeIn(BaseModel):
 
 
 @router.post("/accounts/{account_id}/creatives")
-async def create_creative(account_id: str, body: CreativeIn, db: Session = Depends(get_db)):
-    client = await get_client_for_account(account_id, db)
+async def create_creative(account_id: str, body: CreativeIn, db: Session = Depends(get_db), user: User = Depends(get_current_user)):
+    client = await get_client_for_account(account_id, db, user)
     try:
         result = await client.create_ad_creative(
             account_id, body.name, body.page_id, body.message, body.link,
@@ -195,9 +196,9 @@ async def create_creative(account_id: str, body: CreativeIn, db: Session = Depen
 
 
 @router.post("/accounts/{account_id}/images")
-async def upload_image(account_id: str, file: UploadFile = File(...), db: Session = Depends(get_db)):
+async def upload_image(account_id: str, file: UploadFile = File(...), db: Session = Depends(get_db), user: User = Depends(get_current_user)):
     """图片全程只经过内存，直接转发给 Facebook，本服务不写入磁盘、不落库保存"""
-    client = await get_client_for_account(account_id, db)
+    client = await get_client_for_account(account_id, db, user)
     content = await file.read()
     await file.close()
     try:
@@ -207,8 +208,8 @@ async def upload_image(account_id: str, file: UploadFile = File(...), db: Sessio
 
 
 @router.get("/accounts/{account_id}/ads")
-async def list_ads(account_id: str, adset_id: Optional[str] = None, db: Session = Depends(get_db)):
-    client = await get_client_for_account(account_id, db)
+async def list_ads(account_id: str, adset_id: Optional[str] = None, db: Session = Depends(get_db), user: User = Depends(get_current_user)):
+    client = await get_client_for_account(account_id, db, user)
     try:
         return await client.list_ads(account_id, adset_id)
     except FBAPIError as e:
@@ -223,8 +224,8 @@ class AdIn(BaseModel):
 
 
 @router.post("/accounts/{account_id}/ads")
-async def create_ad(account_id: str, body: AdIn, db: Session = Depends(get_db)):
-    client = await get_client_for_account(account_id, db)
+async def create_ad(account_id: str, body: AdIn, db: Session = Depends(get_db), user: User = Depends(get_current_user)):
+    client = await get_client_for_account(account_id, db, user)
     try:
         result = await client.create_ad(
             account_id, body.name, body.adset_id, body.creative_id, body.status
@@ -241,9 +242,9 @@ class StatusIn(BaseModel):
 
 
 @router.post("/accounts/{account_id}/objects/{object_id}/status")
-async def update_status(account_id: str, object_id: str, body: StatusIn, db: Session = Depends(get_db)):
+async def update_status(account_id: str, object_id: str, body: StatusIn, db: Session = Depends(get_db), user: User = Depends(get_current_user)):
     """account_id 用于定位应使用哪个 BM 的 token，object_id 可以是 campaign/adset/ad 的 ID"""
-    client = await get_client_for_account(account_id, db)
+    client = await get_client_for_account(account_id, db, user)
     try:
         result = await client.update_status(object_id, body.status)
         _log(db, account_id, "update_status", f"{object_id}->{body.status}")
@@ -263,8 +264,8 @@ class CampaignUpdateIn(BaseModel):
 
 
 @router.patch("/accounts/{account_id}/campaigns/{campaign_id}")
-async def update_campaign(account_id: str, campaign_id: str, body: CampaignUpdateIn, db: Session = Depends(get_db)):
-    client = await get_client_for_account(account_id, db)
+async def update_campaign(account_id: str, campaign_id: str, body: CampaignUpdateIn, db: Session = Depends(get_db), user: User = Depends(get_current_user)):
+    client = await get_client_for_account(account_id, db, user)
     try:
         result = await client.update_campaign(
             campaign_id, body.name, body.status, body.daily_budget_cents, body.lifetime_budget_cents
@@ -285,8 +286,8 @@ class CopyIn(BaseModel):
 
 
 @router.post("/accounts/{account_id}/campaigns/{campaign_id}/duplicate")
-async def duplicate_campaign(account_id: str, campaign_id: str, body: CopyIn, db: Session = Depends(get_db)):
-    client = await get_client_for_account(account_id, db)
+async def duplicate_campaign(account_id: str, campaign_id: str, body: CopyIn, db: Session = Depends(get_db), user: User = Depends(get_current_user)):
+    client = await get_client_for_account(account_id, db, user)
     try:
         result = await client.copy_campaign(campaign_id, body.deep_copy, body.status_option, body.rename_suffix)
         _log(db, account_id, "duplicate_campaign", f"{campaign_id}->{result}")
@@ -305,8 +306,8 @@ class AdSetUpdateIn(BaseModel):
 
 
 @router.patch("/accounts/{account_id}/adsets/{adset_id}")
-async def update_adset_endpoint(account_id: str, adset_id: str, body: AdSetUpdateIn, db: Session = Depends(get_db)):
-    client = await get_client_for_account(account_id, db)
+async def update_adset_endpoint(account_id: str, adset_id: str, body: AdSetUpdateIn, db: Session = Depends(get_db), user: User = Depends(get_current_user)):
+    client = await get_client_for_account(account_id, db, user)
     try:
         result = await client.update_adset(
             adset_id, body.name, body.status, body.daily_budget_cents,
@@ -322,8 +323,8 @@ async def update_adset_endpoint(account_id: str, adset_id: str, body: AdSetUpdat
 
 
 @router.post("/accounts/{account_id}/adsets/{adset_id}/duplicate")
-async def duplicate_adset(account_id: str, adset_id: str, body: CopyIn, db: Session = Depends(get_db)):
-    client = await get_client_for_account(account_id, db)
+async def duplicate_adset(account_id: str, adset_id: str, body: CopyIn, db: Session = Depends(get_db), user: User = Depends(get_current_user)):
+    client = await get_client_for_account(account_id, db, user)
     try:
         result = await client.copy_adset(adset_id, body.deep_copy, body.status_option, body.rename_suffix)
         _log(db, account_id, "duplicate_adset", f"{adset_id}->{result}")
@@ -339,8 +340,8 @@ class AdUpdateIn(BaseModel):
 
 
 @router.patch("/accounts/{account_id}/ads/{ad_id}")
-async def update_ad_endpoint(account_id: str, ad_id: str, body: AdUpdateIn, db: Session = Depends(get_db)):
-    client = await get_client_for_account(account_id, db)
+async def update_ad_endpoint(account_id: str, ad_id: str, body: AdUpdateIn, db: Session = Depends(get_db), user: User = Depends(get_current_user)):
+    client = await get_client_for_account(account_id, db, user)
     try:
         result = await client.update_ad(ad_id, body.name, body.status)
         _log(db, account_id, "update_ad", f"{ad_id}:{body.model_dump(exclude_none=True)}")
@@ -353,8 +354,8 @@ async def update_ad_endpoint(account_id: str, ad_id: str, body: AdUpdateIn, db: 
 
 
 @router.post("/accounts/{account_id}/ads/{ad_id}/duplicate")
-async def duplicate_ad(account_id: str, ad_id: str, body: CopyIn, db: Session = Depends(get_db)):
-    client = await get_client_for_account(account_id, db)
+async def duplicate_ad(account_id: str, ad_id: str, body: CopyIn, db: Session = Depends(get_db), user: User = Depends(get_current_user)):
+    client = await get_client_for_account(account_id, db, user)
     try:
         result = await client.copy_ad(ad_id, body.status_option)
         _log(db, account_id, "duplicate_ad", f"{ad_id}->{result}")
@@ -399,8 +400,8 @@ class QuickLaunchIn(BaseModel):
 
 
 @router.post("/accounts/{account_id}/quick_launch")
-async def quick_launch(account_id: str, body: QuickLaunchIn, db: Session = Depends(get_db)):
-    client = await get_client_for_account(account_id, db)
+async def quick_launch(account_id: str, body: QuickLaunchIn, db: Session = Depends(get_db), user: User = Depends(get_current_user)):
+    client = await get_client_for_account(account_id, db, user)
     created: dict = {}
     try:
         campaign = await client.create_campaign(
@@ -474,9 +475,9 @@ class PublishIn(BaseModel):
 
 
 @router.post("/accounts/{account_id}/publish")
-async def publish(account_id: str, body: PublishIn, db: Session = Depends(get_db)):
+async def publish(account_id: str, body: PublishIn, db: Session = Depends(get_db), user: User = Depends(get_current_user)):
     """把草稿（PAUSED）的系列/组/广告一起切换成 ACTIVE，正式上线投放"""
-    client = await get_client_for_account(account_id, db)
+    client = await get_client_for_account(account_id, db, user)
     results: dict = {}
     try:
         if body.campaign_id:

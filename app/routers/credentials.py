@@ -32,25 +32,41 @@ def list_credentials(db: Session = Depends(get_db)):
 
 
 class CredentialIn(BaseModel):
-    label: str
-    bm_id: str = ""
+    label: str = ""       # 留空则自动从令牌读取 BM 名称
+    bm_id: str = ""       # 留空则自动从令牌读取 BM ID
     access_token: str
 
 
 @router.post("")
 async def create_credential(body: CredentialIn, db: Session = Depends(get_db)):
-    # 先用这个 token 试探性调用一次，确认有效再存
+    # 先用这个 token 试探性调用一次，确认有效再存；顺便从返回的广告账户里
+    # 读取所属 Business（BM）的 id/name，自动填充，不用手动输入。
     client = FBClient(body.access_token)
     try:
-        await client.list_ad_accounts()
+        result = await client.list_ad_accounts()
     except FBAPIError as e:
         raise HTTPException(status_code=400, detail=f"令牌校验失败，未保存：{e}")
 
-    row = BMCredential(label=body.label, bm_id=body.bm_id, access_token=body.access_token)
+    label = body.label.strip()
+    bm_id = body.bm_id.strip()
+    if not label or not bm_id:
+        for acc in result.get("data", []):
+            biz = acc.get("business")
+            if biz:
+                if not label:
+                    label = biz.get("name", "")
+                if not bm_id:
+                    bm_id = biz.get("id", "")
+                break
+
+    if not label:
+        label = f"未命名BM-{body.access_token[-4:]}"
+
+    row = BMCredential(label=label, bm_id=bm_id, access_token=body.access_token)
     db.add(row)
     db.commit()
     db.refresh(row)
-    return {"id": row.id, "label": row.label}
+    return {"id": row.id, "label": row.label, "bm_id": row.bm_id}
 
 
 class CredentialUpdateIn(BaseModel):

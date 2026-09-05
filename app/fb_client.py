@@ -10,8 +10,18 @@ class FBAPIError(Exception):
     def __init__(self, status_code: int, payload: dict):
         self.status_code = status_code
         self.payload = payload
-        message = payload.get("error", {}).get("message", str(payload))
-        super().__init__(f"FB API Error [{status_code}]: {message}")
+        err = payload.get("error", {}) or {}
+        parts = [err.get("message", str(payload))]
+        # Facebook 的顶层 message 经常很笼统（比如 "Invalid parameter"），
+        # 真正有用的线索往往在这几个字段里，一并带上方便排查。
+        if err.get("error_user_title") or err.get("error_user_msg"):
+            hint = " ".join(filter(None, [err.get("error_user_title"), err.get("error_user_msg")]))
+            parts.append(f"详情：{hint}")
+        if err.get("error_subcode"):
+            parts.append(f"子错误码：{err['error_subcode']}")
+        if err.get("fbtrace_id"):
+            parts.append(f"追踪ID：{err['fbtrace_id']}")
+        super().__init__(f"FB API Error [{status_code}]: " + " | ".join(parts))
 
 
 class FBClient:
@@ -49,7 +59,7 @@ class FBClient:
     async def list_ad_accounts(self):
         fields = (
             "id,name,account_id,account_status,currency,timezone_name,"
-            "amount_spent,balance,spend_cap,funding_source_details"
+            "amount_spent,balance,spend_cap,funding_source_details,business"
         )
         return await self._get("me/adaccounts", {"fields": fields, "limit": 200})
 
@@ -219,6 +229,10 @@ class FBClient:
         description: str | None = None,
         call_to_action_type: str = "LEARN_MORE",
     ):
+        # Facebook 要求 link 是完整合法 URL（必须带 http(s):// 协议头），
+        # 用户经常只填 "www.xxx.com" 这种不带协议头的写法，这里做兜底自动补全。
+        link = _normalize_url(link)
+
         link_data = {
             "message": message,
             "link": link,
@@ -329,7 +343,7 @@ class FBClient:
         data = {"deep_copy": str(deep_copy).lower(), "status_option": status_option}
         if rename_suffix:
             data["rename_options"] = _to_json({
-                "rename_strategy": "ONLY_TOP_LEVEL_RESOURCE_NAMES",
+                "rename_strategy": "ONLY_TOP_LEVEL_RENAME",
                 "rename_suffix": rename_suffix,
             })
         return await self._post(f"{campaign_id}/copies", data)
@@ -341,7 +355,7 @@ class FBClient:
         data = {"deep_copy": str(deep_copy).lower(), "status_option": status_option}
         if rename_suffix:
             data["rename_options"] = _to_json({
-                "rename_strategy": "ONLY_TOP_LEVEL_RESOURCE_NAMES",
+                "rename_strategy": "ONLY_TOP_LEVEL_RENAME",
                 "rename_suffix": rename_suffix,
             })
         return await self._post(f"{adset_id}/copies", data)
@@ -368,6 +382,14 @@ class FBClient:
 def _to_json(obj) -> str:
     import json
     return json.dumps(obj)
+
+
+def _normalize_url(url: str) -> str:
+    """给缺少协议头的链接自动补全 https://，Facebook 要求 link 字段必须是完整合法 URL"""
+    url = (url or "").strip()
+    if url and not url.lower().startswith(("http://", "https://")):
+        url = "https://" + url
+    return url
 
 
 # ---------- Facebook insights 里 actions/action_values/purchase_roas 都是

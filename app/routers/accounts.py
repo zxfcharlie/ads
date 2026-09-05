@@ -4,8 +4,9 @@ from pydantic import BaseModel
 
 from app.fb_client import FBClient, FBAPIError
 from app.database import get_db
-from app.models import AccountNote, OperationLog, BMCredential, AccountCredentialMap
+from app.models import AccountNote, OperationLog, BMCredential, AccountCredentialMap, User, UserAccess
 from app.resolver import get_client_for_account, _upsert_map
+from app.deps import get_current_user
 
 router = APIRouter(prefix="/api/accounts", tags=["accounts"])
 
@@ -33,15 +34,30 @@ def _augment_budget_fields(acc: dict) -> dict:
 
 
 @router.get("")
-async def list_accounts(db: Session = Depends(get_db)):
-    """聚合所有已配置的 Business Manager 下的广告账户"""
+async def list_accounts(db: Session = Depends(get_db), user: User = Depends(get_current_user)):
+    """聚合展示广告账户：管理员看所有已配置 BM 下的账户；普通用户只看被授权的部分"""
     creds = db.query(BMCredential).filter(BMCredential.is_active == True).all()  # noqa: E712
     notes = {n.account_id: n for n in db.query(AccountNote).all()}
+
+    grants_by_cred: dict[int, set[str] | None] = {}
+    if not user.is_admin:
+        grants = db.query(UserAccess).filter(UserAccess.user_id == user.id).all()
+        for g in grants:
+            if g.credential_id not in grants_by_cred:
+                grants_by_cred[g.credential_id] = set()
+            bucket = grants_by_cred[g.credential_id]
+            if g.account_id is None:
+                grants_by_cred[g.credential_id] = None  # None 表示整个 BM 都放行
+            elif bucket is not None:
+                bucket.add(g.account_id)
 
     all_data = []
     errors = []
 
     for cred in creds:
+        if not user.is_admin and cred.id not in grants_by_cred:
+            continue  # 普通用户完全没被授权这个 BM，跳过
+
         client = FBClient(cred.access_token)
         try:
             result = await client.list_ad_accounts()
@@ -49,7 +65,12 @@ async def list_accounts(db: Session = Depends(get_db)):
             errors.append({"credential": cred.label, "error": str(e)})
             continue
 
+        allowed_accounts = None if user.is_admin else grants_by_cred.get(cred.id)
+
         for acc in result.get("data", []):
+            if allowed_accounts is not None and acc["id"] not in allowed_accounts:
+                continue  # 普通用户只被授权了这个 BM 下的部分账户
+
             acc["bm_label"] = cred.label
             acc["credential_id"] = cred.id
             note = notes.get(acc["id"])
@@ -64,8 +85,8 @@ async def list_accounts(db: Session = Depends(get_db)):
 
 
 @router.get("/{account_id}")
-async def get_account(account_id: str, db: Session = Depends(get_db)):
-    client = await get_client_for_account(account_id, db)
+async def get_account(account_id: str, db: Session = Depends(get_db), user: User = Depends(get_current_user)):
+    client = await get_client_for_account(account_id, db, user)
     try:
         acc = await client.get_account(account_id)
     except FBAPIError as e:
@@ -78,11 +99,11 @@ class SpendCapIn(BaseModel):
 
 
 @router.post("/{account_id}/spend_cap")
-async def set_spend_cap(account_id: str, body: SpendCapIn, db: Session = Depends(get_db)):
-    client = await get_client_for_account(account_id, db)
+async def set_spend_cap(
+    account_id: str, body: SpendCapIn, db: Session = Depends(get_db), user: User = Depends(get_current_user)
+):
+    client = await get_client_for_account(account_id, db, user)
 
-    # 提前做一次本地校验，避免无意义地打一个必然失败的请求：
-    # Facebook 不允许把花费上限设得比已花费金额还低（0 表示清除上限，不受此限制）。
     if body.spend_cap_cents != 0:
         try:
             current = await client.get_account(account_id)
@@ -106,7 +127,6 @@ async def set_spend_cap(account_id: str, body: SpendCapIn, db: Session = Depends
         db.add(OperationLog(account_id=account_id, action="update_spend_cap",
                              detail=str(e), status="failed"))
         db.commit()
-        # 把 Facebook 返回的具体原因原样抛给前端，而不是笼统的"失败"
         raise HTTPException(status_code=e.status_code, detail=str(e))
 
 

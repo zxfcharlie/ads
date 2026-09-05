@@ -4,7 +4,7 @@
 <meta charset="UTF-8" />
 <title>广告管理平台</title>
 <meta name="viewport" content="width=device-width, initial-scale=1" />
-<link rel="stylesheet" href="/static/style.css?v=9" />
+<link rel="stylesheet" href="/static/style.css?v=11" />
 </head>
 <body>
 
@@ -13,10 +13,25 @@
     <div class="login-logo">✦</div>
     <h2>广告管理平台</h2>
     <p class="login-sub">统一管理你的多渠道广告投放</p>
-    <input id="username" type="text" placeholder="账号" autocomplete="username" />
-    <input id="pw" type="password" placeholder="密码" autocomplete="current-password" />
-    <button onclick="doLogin()">登录</button>
+
+    <div id="login-form-fields">
+      <input id="username" type="text" placeholder="账号" autocomplete="username" />
+      <input id="pw" type="password" placeholder="密码" autocomplete="current-password" />
+      <button onclick="doLogin()">登录</button>
+    </div>
+
+    <div id="register-form-fields" class="hidden">
+      <input id="reg-username" type="text" placeholder="设置账号" />
+      <input id="reg-pw" type="password" placeholder="设置密码（至少6位）" />
+      <input id="reg-pw2" type="password" placeholder="确认密码" />
+      <button onclick="doRegister()">提交注册申请</button>
+    </div>
+
     <p id="login-err" class="err"></p>
+    <p style="font-size:13px;margin-top:6px">
+      <a href="#" id="toggle-to-register" onclick="showRegisterForm(); return false;">没有账号？点此注册</a>
+      <a href="#" id="toggle-to-login" onclick="showLoginForm(); return false;" class="hidden">已有账号？点此登录</a>
+    </p>
   </div>
 </div>
 
@@ -38,7 +53,7 @@
         <div class="channel-subnav">
           <button class="subnav-item active" data-tab="accounts">账户总览</button>
           <button class="subnav-item" data-tab="manage">广告管理</button>
-          <button class="subnav-item" data-tab="bm">BM账号管理</button>
+          <button class="subnav-item hidden" data-tab="bm" id="nav-bm">BM账号管理</button>
         </div>
       </div>
 
@@ -55,6 +70,19 @@
           <span class="channel-icon channel-icon-tiktok">T</span>
           <span class="channel-name">TikTok 广告</span>
           <span class="badge-soon">即将推出</span>
+        </div>
+      </div>
+
+      <div id="admin-section-wrap" class="hidden">
+        <div class="sidebar-section-title" style="margin-top:14px">系统管理</div>
+        <div class="channel-group">
+          <div class="channel-header active">
+            <span class="channel-icon" style="background:#374151">⚙</span>
+            <span class="channel-name">管理后台</span>
+          </div>
+          <div class="channel-subnav">
+            <button class="subnav-item" data-tab="users">用户管理</button>
+          </div>
         </div>
       </div>
     </div>
@@ -139,8 +167,8 @@
       <div class="card">
         <h4>新增一个 BM 系统用户令牌</h4>
         <div class="form-row">
-          <input id="bm-label" placeholder="BM 名称/备注，如：客户A - 主BM" />
-          <input id="bm-id" placeholder="Business Manager ID（可选）" />
+          <input id="bm-label" placeholder="BM 名称（留空自动从令牌读取）" />
+          <input id="bm-id" placeholder="BM ID（留空自动从令牌读取）" />
           <input id="bm-token" placeholder="系统用户长效访问令牌 (System User Access Token)" style="flex:1;min-width:280px" />
           <button class="btn" onclick="addCredential()">校验并保存</button>
         </div>
@@ -155,9 +183,42 @@
         </table>
       </div>
     </section>
+
+    <!-- 用户管理（管理员专属）：审核注册 + 分配渠道/账户访问权限 -->
+    <section id="tab-users" class="tab-panel hidden">
+      <div class="panel-header">
+        <h1>用户管理</h1>
+        <button class="btn" onclick="loadUsers()">刷新</button>
+      </div>
+
+      <div class="card table-card">
+        <table class="grid">
+          <thead>
+            <tr><th>用户名</th><th>角色</th><th>状态</th><th>注册时间</th><th>操作</th></tr>
+          </thead>
+          <tbody id="users-tbody"></tbody>
+        </table>
+      </div>
+
+      <div class="card" id="access-panel" style="display:none">
+        <h4>分配访问权限：<span id="access-target-username"></span></h4>
+        <div class="form-row">
+          <select id="access-bm-select" onchange="onAccessBMChange()"></select>
+          <select id="access-account-select">
+            <option value="">整个 BM（全部账户）</option>
+          </select>
+          <button class="btn" onclick="submitGrantAccess()">授予权限</button>
+        </div>
+        <table class="grid" style="margin-top:10px">
+          <thead><tr><th>BM</th><th>账户范围</th><th>操作</th></tr></thead>
+          <tbody id="access-tbody"></tbody>
+        </table>
+        <div id="access-result" class="result"></div>
+      </div>
+    </section>
   </main>
 </div>
 
-<script src="/static/app.js?v=9"></script>
+<script src="/static/app.js?v=11"></script>
 </body>
 </html>

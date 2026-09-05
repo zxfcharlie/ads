@@ -55,3 +55,33 @@ class OperationLog(Base):
     detail = Column(Text, default="")
     status = Column(String, default="success")  # success / failed
     created_at = Column(DateTime, default=datetime.utcnow)
+
+
+class User(Base):
+    """
+    面板登录账号。管理员账号由 .env 里的 ADMIN_USERNAME/ADMIN_PASSWORD 自动同步生成，
+    其余账号通过注册流程创建，默认 is_approved=False，需要管理员审核通过才能登录使用。
+    """
+    __tablename__ = "app_users"
+
+    id = Column(Integer, primary_key=True, index=True)
+    username = Column(String, unique=True, index=True)
+    password_hash = Column(String)
+    is_admin = Column(Boolean, default=False)
+    is_approved = Column(Boolean, default=False)
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+
+class UserAccess(Base):
+    """
+    用户访问权限授权表：管理员给某个用户开通某个 BM 的访问权限，
+    account_id 留空 = 该 BM 下所有广告账户都能看；account_id 非空 = 只能看这一个账户。
+    普通用户默认（没有任何授权记录时）看不到任何广告账户。
+    """
+    __tablename__ = "user_access"
+
+    id = Column(Integer, primary_key=True, index=True)
+    user_id = Column(Integer, index=True)
+    credential_id = Column(Integer, index=True)   # 对应 BMCredential.id
+    account_id = Column(String, nullable=True)    # act_xxx，留空代表整个 BM
+    created_at = Column(DateTime, default=datetime.utcnow)

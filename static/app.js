@@ -1,35 +1,99 @@
 let TOKEN = localStorage.getItem("panel_token") || "";
+let IS_ADMIN = localStorage.getItem("panel_is_admin") === "1";
 let ACCOUNTS = [];
 
-// ---------------- 登录 ----------------
+// ---------------- 登录 / 注册 ----------------
 async function doLogin() {
   const username = document.getElementById("username").value;
   const pw = document.getElementById("pw").value;
+  const errBox = document.getElementById("login-err");
+  errBox.style.color = "";
   const res = await fetch("/api/login", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ username, password: pw }),
   });
+  const data = await res.json().catch(() => ({}));
   if (!res.ok) {
-    document.getElementById("login-err").innerText = "账号或密码错误";
+    errBox.innerText = data.detail || "登录失败";
     return;
   }
-  const data = await res.json();
   TOKEN = data.token;
+  IS_ADMIN = !!data.is_admin;
   localStorage.setItem("panel_token", TOKEN);
+  localStorage.setItem("panel_is_admin", IS_ADMIN ? "1" : "0");
   showApp();
+}
+
+function showRegisterForm() {
+  document.getElementById("login-form-fields").classList.add("hidden");
+  document.getElementById("register-form-fields").classList.remove("hidden");
+  document.getElementById("toggle-to-register").classList.add("hidden");
+  document.getElementById("toggle-to-login").classList.remove("hidden");
+  document.getElementById("login-err").innerText = "";
+}
+
+function showLoginForm() {
+  document.getElementById("login-form-fields").classList.remove("hidden");
+  document.getElementById("register-form-fields").classList.add("hidden");
+  document.getElementById("toggle-to-register").classList.remove("hidden");
+  document.getElementById("toggle-to-login").classList.add("hidden");
+  document.getElementById("login-err").innerText = "";
+}
+
+async function doRegister() {
+  const username = document.getElementById("reg-username").value.trim();
+  const pw = document.getElementById("reg-pw").value;
+  const pw2 = document.getElementById("reg-pw2").value;
+  const errBox = document.getElementById("login-err");
+  errBox.style.color = "";
+  if (!username || !pw) return (errBox.innerText = "请填写账号和密码");
+  if (pw.length < 6) return (errBox.innerText = "密码至少 6 位");
+  if (pw !== pw2) return (errBox.innerText = "两次密码输入不一致");
+  try {
+    const res = await fetch("/api/register", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ username, password: pw }),
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(data.detail || "注册失败");
+    errBox.style.color = "#15803d";
+    errBox.innerText = data.message || "注册成功，请等待管理员审核";
+    document.getElementById("reg-username").value = "";
+    document.getElementById("reg-pw").value = "";
+    document.getElementById("reg-pw2").value = "";
+  } catch (e) {
+    errBox.innerText = e.message;
+  }
 }
 
 function logout() {
   localStorage.removeItem("panel_token");
+  localStorage.removeItem("panel_is_admin");
   TOKEN = "";
+  IS_ADMIN = false;
   document.getElementById("app-view").classList.add("hidden");
   document.getElementById("login-view").classList.remove("hidden");
+  showLoginForm();
+}
+
+function applyAdminVisibility() {
+  const bmNav = document.getElementById("nav-bm");
+  const adminWrap = document.getElementById("admin-section-wrap");
+  if (IS_ADMIN) {
+    if (bmNav) bmNav.classList.remove("hidden");
+    if (adminWrap) adminWrap.classList.remove("hidden");
+  } else {
+    if (bmNav) bmNav.classList.add("hidden");
+    if (adminWrap) adminWrap.classList.add("hidden");
+  }
 }
 
 function showApp() {
   document.getElementById("login-view").classList.add("hidden");
   document.getElementById("app-view").classList.remove("hidden");
+  applyAdminVisibility();
   loadAccounts();
 }
 
@@ -43,6 +107,7 @@ window.onload = () => {
       btn.classList.add("active");
       document.getElementById("tab-" + btn.dataset.tab).classList.remove("hidden");
       if (btn.dataset.tab === "bm") loadCredentials();
+      if (btn.dataset.tab === "users") loadUsers();
       if (btn.dataset.tab === "manage") fillManageBMSelect();
     });
   });
@@ -69,6 +134,14 @@ async function apiJSON(path, body, method = "POST") {
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(body),
   });
+}
+
+function normalizeUrl(url) {
+  const trimmed = (url || "").trim();
+  if (trimmed && !/^https?:\/\//i.test(trimmed)) {
+    return "https://" + trimmed;
+  }
+  return trimmed;
 }
 
 function money(cents, currency) {
@@ -192,11 +265,11 @@ async function addCredential() {
   const bm_id = document.getElementById("bm-id").value;
   const access_token = document.getElementById("bm-token").value;
   const box = document.getElementById("bm-add-result");
-  if (!label || !access_token) return (box.innerText = "请填写 BM 名称和令牌");
-  box.innerText = "校验中...";
+  if (!access_token) return (box.innerText = "请填写系统用户令牌");
+  box.innerText = "校验中...（会自动读取 BM 名称和 ID）";
   try {
-    await apiJSON("/api/credentials", { label, bm_id, access_token });
-    box.innerText = "添加成功";
+    const result = await apiJSON("/api/credentials", { label, bm_id, access_token });
+    box.innerText = `添加成功：${result.label}${result.bm_id ? " (BM ID: " + result.bm_id + ")" : ""}`;
     document.getElementById("bm-label").value = "";
     document.getElementById("bm-id").value = "";
     document.getElementById("bm-token").value = "";
@@ -501,7 +574,7 @@ function renderManageRows(rows) {
       const toggleLabel = r.status === "ACTIVE" ? "暂停" : "启用";
       const actionsCell = `
         <button onclick="toggleManageStatus('${kind}','${r.id}','${r.status}')">${toggleLabel}</button>
-        <button onclick="doDuplicate('${kind}','${r.id}')">复制</button>
+        <span id="dup-cell-${r.id}"><button onclick="askDuplicate('${kind}','${r.id}')">复制</button></span>
       `;
 
       return `<tr>
@@ -587,14 +660,31 @@ async function saveBudgetInline(kind, id) {
   }
 }
 
+function askDuplicate(kind, id) {
+  const cell = document.getElementById(`dup-cell-${id}`);
+  if (!cell) return;
+  cell.innerHTML = `
+    <span style="font-size:12px;color:#555">复制出来默认暂停，确定？</span>
+    <button onclick="doDuplicate('${kind}','${id}')" style="padding:3px 8px;font-size:12px">确定</button>
+    <button onclick="cancelDuplicate('${kind}','${id}')" style="padding:3px 8px;font-size:12px;background:#888">取消</button>
+  `;
+}
+
+function cancelDuplicate(kind, id) {
+  const cell = document.getElementById(`dup-cell-${id}`);
+  if (cell) cell.innerHTML = `<button onclick="askDuplicate('${kind}','${id}')">复制</button>`;
+}
+
 async function doDuplicate(kind, id) {
-  if (!confirm("确定要复制这个对象吗？复制出来的默认是暂停状态。")) return;
+  const cell = document.getElementById(`dup-cell-${id}`);
+  if (cell) cell.innerHTML = `<span style="font-size:12px;color:#888">复制中...</span>`;
   try {
     const result = await duplicateObject(kind, MANAGE.accountId, id);
     reportManage("复制成功，新对象 ID：" + JSON.stringify(result));
     loadManageTable();
   } catch (e) {
     reportManage("复制失败：" + e.message);
+    if (cell) cell.innerHTML = `<button onclick="askDuplicate('${kind}','${id}')">复制</button>`;
   }
 }
 
@@ -686,7 +776,7 @@ function renderCreateArea() {
         <label class="field-label">Facebook 主页</label>
         <select id="ql-page-select"><option value="">加载中...</option></select>
         <input id="ql-message" placeholder="正文文案" />
-        <input id="ql-link" placeholder="落地页链接 https://..." />
+        <input id="ql-link" placeholder="落地页链接 https://...（不带协议头会自动补全 https://）" onblur="this.value = normalizeUrl(this.value)" />
         <input id="ql-headline" placeholder="标题（可选）" />
         <input id="ql-image" type="file" accept="image/*" />
 
@@ -759,7 +849,7 @@ async function submitQuickLaunch() {
   const ad_name = document.getElementById("ql-ad-name").value;
   const page_id = document.getElementById("ql-page-select").value;
   const message = document.getElementById("ql-message").value;
-  const link = document.getElementById("ql-link").value;
+  const link = normalizeUrl(document.getElementById("ql-link").value);
   const headline = document.getElementById("ql-headline").value;
   const fileInput = document.getElementById("ql-image");
 
@@ -1090,5 +1180,163 @@ async function initQuickLaunchWidgets() {
   } catch (e) {
     const el = document.getElementById("ql-pixel-select");
     if (el) el.innerHTML = `<option value="">加载失败：${e.message}</option>`;
+  }
+}
+
+// ---------------- 用户管理（管理员专属）：审核注册 + 分配渠道/账户访问权限 ----------------
+let ACCESS_TARGET_USER_ID = null;
+
+async function loadUsers() {
+  const tbody = document.getElementById("users-tbody");
+  tbody.innerHTML = "<tr><td colspan='5'>加载中...</td></tr>";
+  try {
+    const rows = await api("/api/admin/users");
+    tbody.innerHTML = "";
+    rows.forEach((u) => {
+      const tr = document.createElement("tr");
+      const roleLabel = u.is_admin ? "管理员" : "普通用户";
+      const statusLabel = u.is_approved
+        ? `<span class="status-pill status-active">已通过</span>`
+        : `<span class="status-pill status-paused">待审核</span>`;
+      let actions = `<span style="color:#888">管理员账号</span>`;
+      if (!u.is_admin) {
+        if (!u.is_approved) {
+          actions = `
+            <button onclick="approveUser(${u.id})">通过</button>
+            <button onclick="deleteUser(${u.id})" style="background:#888">拒绝</button>`;
+        } else {
+          actions = `
+            <button onclick="openAccessPanel(${u.id}, '${escapeHtml(u.username)}')">分配权限</button>
+            <button onclick="revokeUserApproval(${u.id})" style="background:#888">撤销通过</button>
+            <button onclick="deleteUser(${u.id})" style="background:#c0392b">删除</button>`;
+        }
+      }
+      tr.innerHTML = `
+        <td>${u.username}</td>
+        <td>${roleLabel}</td>
+        <td>${statusLabel}</td>
+        <td>${new Date(u.created_at).toLocaleString()}</td>
+        <td>${actions}</td>
+      `;
+      tbody.appendChild(tr);
+    });
+  } catch (e) {
+    tbody.innerHTML = `<tr><td colspan="5" style="color:red">加载失败：${e.message}</td></tr>`;
+  }
+}
+
+async function approveUser(id) {
+  try {
+    await apiJSON(`/api/admin/users/${id}/approve`, {});
+    loadUsers();
+  } catch (e) {
+    alert("操作失败：" + e.message);
+  }
+}
+
+async function revokeUserApproval(id) {
+  try {
+    await apiJSON(`/api/admin/users/${id}/revoke`, {});
+    loadUsers();
+  } catch (e) {
+    alert("操作失败：" + e.message);
+  }
+}
+
+async function deleteUser(id) {
+  if (!confirm("确定要删除/拒绝这个用户吗？该操作不可恢复。")) return;
+  try {
+    await api(`/api/admin/users/${id}`, { method: "DELETE" });
+    loadUsers();
+    if (ACCESS_TARGET_USER_ID === id) {
+      document.getElementById("access-panel").style.display = "none";
+      ACCESS_TARGET_USER_ID = null;
+    }
+  } catch (e) {
+    alert("操作失败：" + e.message);
+  }
+}
+
+async function openAccessPanel(userId, username) {
+  ACCESS_TARGET_USER_ID = userId;
+  document.getElementById("access-target-username").innerText = username;
+  document.getElementById("access-panel").style.display = "block";
+
+  try {
+    const creds = await api("/api/credentials");
+    const bmSelect = document.getElementById("access-bm-select");
+    bmSelect.innerHTML = creds.length
+      ? creds.map((c) => `<option value="${c.id}">${c.label}</option>`).join("")
+      : `<option value="">还没有配置任何 BM</option>`;
+    await onAccessBMChange();
+  } catch (e) {
+    console.error(e);
+  }
+
+  loadUserAccess();
+}
+
+async function onAccessBMChange() {
+  const credId = document.getElementById("access-bm-select").value;
+  const accSelect = document.getElementById("access-account-select");
+  accSelect.innerHTML = `<option value="">整个 BM（全部账户）</option>`;
+  if (!credId) return;
+  try {
+    const res = await api("/api/accounts");
+    const filtered = (res.data || []).filter((a) => String(a.credential_id) === String(credId));
+    filtered.forEach((a) => {
+      const opt = document.createElement("option");
+      opt.value = a.id;
+      opt.textContent = `${a.name} (${a.id})`;
+      accSelect.appendChild(opt);
+    });
+  } catch (e) {
+    console.error(e);
+  }
+}
+
+async function submitGrantAccess() {
+  const credential_id = parseInt(document.getElementById("access-bm-select").value, 10);
+  const account_id = document.getElementById("access-account-select").value || null;
+  const box = document.getElementById("access-result");
+  if (!credential_id) return (box.innerText = "请先选择 BM");
+  box.innerText = "授权中...";
+  try {
+    await apiJSON(`/api/admin/users/${ACCESS_TARGET_USER_ID}/access`, { credential_id, account_id });
+    box.innerText = "授权成功";
+    loadUserAccess();
+  } catch (e) {
+    box.innerText = "授权失败：" + e.message;
+  }
+}
+
+async function loadUserAccess() {
+  const tbody = document.getElementById("access-tbody");
+  tbody.innerHTML = "<tr><td colspan='3'>加载中...</td></tr>";
+  try {
+    const rows = await api(`/api/admin/users/${ACCESS_TARGET_USER_ID}/access`);
+    tbody.innerHTML = rows.length
+      ? rows
+          .map(
+            (g) => `
+          <tr>
+            <td>${g.bm_label}</td>
+            <td>${g.account_id ? g.account_id : "整个 BM（全部账户）"}</td>
+            <td><button onclick="revokeAccess(${g.id})" style="background:#888">撤销</button></td>
+          </tr>`
+          )
+          .join("")
+      : `<tr><td colspan="3">尚未分配任何权限，该用户目前看不到任何广告账户</td></tr>`;
+  } catch (e) {
+    tbody.innerHTML = `<tr><td colspan="3" style="color:red">加载失败：${e.message}</td></tr>`;
+  }
+}
+
+async function revokeAccess(accessId) {
+  try {
+    await api(`/api/admin/access/${accessId}`, { method: "DELETE" });
+    loadUserAccess();
+  } catch (e) {
+    alert("撤销失败：" + e.message);
   }
 }
