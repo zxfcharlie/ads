@@ -44,7 +44,7 @@ window.onload = () => {
       btn.classList.add("active");
       document.getElementById("tab-" + btn.dataset.tab).classList.remove("hidden");
       if (btn.dataset.tab === "bm") loadCredentials();
-      if (btn.dataset.tab === "manage") onAccountChangeForManage();
+      if (btn.dataset.tab === "manage") fillManageBMSelect();
     });
   });
 };
@@ -95,8 +95,8 @@ async function loadAccounts() {
         <td>${a.account_status}</td>
         <td>${a.currency}</td>
         <td>${money(a.amount_spent, a.currency)}</td>
-        <td>${money(a.balance, a.currency)}</td>
-        <td>${a.spend_cap ? money(a.spend_cap, a.currency) : "无上限"}</td>
+        <td>${a.has_spend_cap ? money(a.spend_cap, a.currency) : "无上限"}</td>
+        <td>${a.has_spend_cap ? money(a.remaining_budget, a.currency) : "不限制"}</td>
         <td><input value="${a.note || ""}" onchange="saveNote('${a.id}', this.value)" placeholder="备注" style="width:120px"/></td>
       `;
       tbody.appendChild(tr);
@@ -124,16 +124,50 @@ async function saveNote(accountId, note) {
 }
 
 function fillAccountSelects() {
-  const opts = ACCOUNTS.map((a) => `<option value="${a.id}">${a.name} (${a.id}) [${a.bm_label || ""}]</option>`).join("");
-  ["create-account-select", "insight-account-select", "budget-account-select", "manage-account-select"].forEach((id) => {
+  const opts = ACCOUNTS.map((a) => `<option value="${a.id}">${a.name} (${a.id})</option>`).join("");
+  ["create-account-select", "insight-account-select", "budget-account-select"].forEach((id) => {
     const el = document.getElementById(id);
     if (el) el.innerHTML = opts;
   });
+  fillManageBMSelect();
   if (ACCOUNTS.length) {
     onAccountChangeForCreate();
     loadBudgetInfo();
-    onAccountChangeForManage();
   }
+}
+
+// ---- 广告管理：BM -> 账户 级联选择 ----
+function fillManageBMSelect() {
+  const bmSelect = document.getElementById("manage-bm-select");
+  const hint = document.getElementById("manage-empty-hint");
+  if (!bmSelect) return;
+
+  if (!ACCOUNTS.length) {
+    bmSelect.innerHTML = "";
+    document.getElementById("manage-account-select").innerHTML = "";
+    if (hint) hint.classList.remove("hidden");
+    return;
+  }
+  if (hint) hint.classList.add("hidden");
+
+  const seen = new Map(); // credential_id -> bm_label
+  ACCOUNTS.forEach((a) => {
+    if (!seen.has(a.credential_id)) seen.set(a.credential_id, a.bm_label || "(未命名BM)");
+  });
+  bmSelect.innerHTML = Array.from(seen.entries())
+    .map(([id, label]) => `<option value="${id}">${label}</option>`)
+    .join("");
+  onBMChangeForManage();
+}
+
+function onBMChangeForManage() {
+  const bmId = document.getElementById("manage-bm-select").value;
+  const accSelect = document.getElementById("manage-account-select");
+  const filtered = ACCOUNTS.filter((a) => String(a.credential_id) === String(bmId));
+  accSelect.innerHTML = filtered
+    .map((a) => `<option value="${a.id}">${a.name} (${a.id})</option>`)
+    .join("");
+  onAccountChangeForManage();
 }
 
 // ---------------- 创建广告流程 ----------------

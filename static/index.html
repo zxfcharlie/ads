@@ -5,7 +5,7 @@
 <title>Facebook 广告管理面板</title>
 <meta name="viewport" content="width=device-width, initial-scale=1" />
 <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
-<link rel="stylesheet" href="/static/style.css?v=2" />
+<link rel="stylesheet" href="/static/style.css?v=3" />
 </head>
 <body>
 
@@ -42,7 +42,7 @@
       </div>
       <table class="grid">
         <thead>
-          <tr><th>所属 BM</th><th>账户</th><th>ID</th><th>状态</th><th>货币</th><th>已花费</th><th>余额</th><th>花费上限</th><th>备注</th></tr>
+          <tr><th>所属 BM</th><th>账户</th><th>ID</th><th>状态</th><th>货币</th><th>已花费</th><th>花费上限</th><th>剩余可花费</th><th>备注</th></tr>
         </thead>
         <tbody id="accounts-tbody"></tbody>
       </table>
@@ -116,7 +116,14 @@
     <section id="tab-manage" class="tab-panel hidden">
       <div class="panel-header">
         <h3>广告管理</h3>
+        <label style="font-size:13px;color:#666">1. 选择 BM</label>
+        <select id="manage-bm-select" onchange="onBMChangeForManage()"></select>
+        <label style="font-size:13px;color:#666">2. 选择广告账户</label>
         <select id="manage-account-select" onchange="onAccountChangeForManage()"></select>
+        <button onclick="loadAccounts()">刷新账户列表</button>
+      </div>
+      <div id="manage-empty-hint" class="result hidden" style="color:#d93025">
+        当前没有任何广告账户数据。请先到「BM账号管理」添加至少一个 Business Manager 的系统用户令牌。
       </div>
 
       <div class="card">
@@ -215,6 +222,6 @@
   </main>
 </div>
 
-<script src="/static/app.js?v=2"></script>
+<script src="/static/app.js?v=3"></script>
 </body>
 </html>

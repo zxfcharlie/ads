@@ -128,7 +128,9 @@ Facebook 原始 `balance` 字段的含义因账户资金模式而异：
 
 ## 六.5、避免浏览器缓存旧的前端代码
 
-`static/index.html` 里引用 `app.js` / `style.css` 时带了版本号（如 `?v=2`）。**以后每次改完前端代码重新部署，记得把这个版本号数字改一下**（比如 v=2 → v=3），否则用户浏览器可能还在用缓存的旧版 JS/CSS，即使容器已经是最新代码，页面表现却像"没生效"。改完 `docker compose up -d --build` 之后，用户端再强制刷新（Ctrl+Shift+R）一次即可看到最新效果。
+`static/index.html` 里引用 `app.js` / `style.css` 时带了版本号（如 `?v=3`）。**以后每次改完前端代码重新部署，记得把这个版本号数字改一下**（比如 v=3 → v=4），否则用户浏览器可能还在用缓存的旧版 JS/CSS，即使容器已经是最新代码，页面表现却像"没生效"。改完 `docker compose up -d --build` 之后，用户端再强制刷新（Ctrl+Shift+R）一次即可看到最新效果。
+
+> 如果你前面还接了 Cloudflare：Cloudflare 默认也会在边缘节点缓存 `.js`/`.css` 这类静态资源。查询字符串（`?v=3`）通常会被计入缓存 key，正常情况下换版本号就能让 Cloudflare 重新回源拉取；如果怀疑 Cloudflare 那一层也缓存住了没刷新，去 Cloudflare 后台「Caching → Configuration → Purge Everything」手动清一次缓存。
 
 ---
 
