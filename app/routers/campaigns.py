@@ -362,3 +362,112 @@ async def duplicate_ad(account_id: str, ad_id: str, body: CopyIn, db: Session = 
     except FBAPIError as e:
         _log(db, account_id, "duplicate_ad", str(e), "failed")
         raise HTTPException(status_code=e.status_code, detail=str(e))
+
+
+# ==================== 整套创建（系列+组+广告一起建成草稿）+ 统一发布 ====================
+# Facebook 要求系列/组/广告成套存在才有意义（单独建一个空系列容易漏配置、也容易在
+# special_ad_categories 等必填参数上出错）。这里一次性把三层都建好，统一用 PAUSED
+# 状态落地为"草稿"，核对无误后再调用 /publish 一次性切到 ACTIVE。
+
+class QuickLaunchIn(BaseModel):
+    # 广告系列
+    campaign_name: str
+    objective: str
+    # 广告组
+    adset_name: str
+    daily_budget_cents: int
+    billing_event: str = "IMPRESSIONS"
+    optimization_goal: str = "LINK_CLICKS"
+    countries: list[str] = ["US"]
+    age_min: int = 18
+    age_max: int = 65
+    # 广告素材 + 广告
+    ad_name: str
+    page_id: str
+    message: str
+    link: str
+    headline: Optional[str] = None
+    image_hash: Optional[str] = None
+
+
+@router.post("/accounts/{account_id}/quick_launch")
+async def quick_launch(account_id: str, body: QuickLaunchIn, db: Session = Depends(get_db)):
+    client = await get_client_for_account(account_id, db)
+    created: dict = {}
+    try:
+        campaign = await client.create_campaign(
+            account_id, body.campaign_name, body.objective, status="PAUSED"
+        )
+        created["campaign_id"] = campaign["id"]
+
+        targeting = {
+            "geo_locations": {"countries": body.countries},
+            "age_min": body.age_min,
+            "age_max": body.age_max,
+        }
+        adset = await client.create_adset(
+            account_id,
+            body.adset_name,
+            created["campaign_id"],
+            body.daily_budget_cents,
+            body.billing_event,
+            body.optimization_goal,
+            targeting,
+            status="PAUSED",
+        )
+        created["adset_id"] = adset["id"]
+
+        creative = await client.create_ad_creative(
+            account_id,
+            body.ad_name + " - 素材",
+            body.page_id,
+            body.message,
+            body.link,
+            body.image_hash,
+            body.headline,
+        )
+        created["creative_id"] = creative["id"]
+
+        ad = await client.create_ad(
+            account_id, body.ad_name, created["adset_id"], created["creative_id"], status="PAUSED"
+        )
+        created["ad_id"] = ad["id"]
+
+        _log(db, account_id, "quick_launch", str(created))
+        return created
+    except FBAPIError as e:
+        # Facebook 没有跨对象的事务回滚：如果中途失败，前面已经建好的部分（比如系列已建但
+        # 广告组失败）依然留在账户里，这里把已创建的部分原样告诉前端，避免用户以为完全没建成。
+        _log(db, account_id, "quick_launch", f"partial={created} error={e}", "failed")
+        raise HTTPException(
+            status_code=e.status_code,
+            detail=f"创建中断，已成功创建的部分：{created or '无'}；失败原因：{e}",
+        )
+
+
+class PublishIn(BaseModel):
+    campaign_id: Optional[str] = None
+    adset_id: Optional[str] = None
+    ad_id: Optional[str] = None
+
+
+@router.post("/accounts/{account_id}/publish")
+async def publish(account_id: str, body: PublishIn, db: Session = Depends(get_db)):
+    """把草稿（PAUSED）的系列/组/广告一起切换成 ACTIVE，正式上线投放"""
+    client = await get_client_for_account(account_id, db)
+    results: dict = {}
+    try:
+        if body.campaign_id:
+            results["campaign"] = await client.update_status(body.campaign_id, "ACTIVE")
+        if body.adset_id:
+            results["adset"] = await client.update_status(body.adset_id, "ACTIVE")
+        if body.ad_id:
+            results["ad"] = await client.update_status(body.ad_id, "ACTIVE")
+        _log(db, account_id, "publish", str(body.model_dump(exclude_none=True)))
+        return results
+    except FBAPIError as e:
+        _log(db, account_id, "publish", f"partial={results} error={e}", "failed")
+        raise HTTPException(
+            status_code=e.status_code,
+            detail=f"发布中断，已成功切换的部分：{results or '无'}；失败原因：{e}",
+        )

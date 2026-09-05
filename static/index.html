@@ -2,15 +2,17 @@
 <html lang="zh-CN">
 <head>
 <meta charset="UTF-8" />
-<title>Facebook 广告管理面板</title>
+<title>广告管理平台</title>
 <meta name="viewport" content="width=device-width, initial-scale=1" />
-<link rel="stylesheet" href="/static/style.css?v=6" />
+<link rel="stylesheet" href="/static/style.css?v=8" />
 </head>
 <body>
 
 <div id="login-view" class="login-view">
   <div class="login-box">
-    <h2>Facebook 广告管理面板</h2>
+    <div class="login-logo">✦</div>
+    <h2>广告管理平台</h2>
+    <p class="login-sub">统一管理你的多渠道广告投放</p>
     <input id="username" type="text" placeholder="账号" autocomplete="username" />
     <input id="pw" type="password" placeholder="密码" autocomplete="current-password" />
     <button onclick="doLogin()">登录</button>
@@ -18,72 +20,108 @@
   </div>
 </div>
 
-<div id="app-view" class="app-view hidden">
-  <header class="topbar">
-    <div class="brand">📊 FB 广告管理面板</div>
-    <nav>
-      <button class="tab-btn active" data-tab="accounts">账户总览</button>
-      <button class="tab-btn" data-tab="manage">广告管理</button>
-      <button class="tab-btn" data-tab="bm">BM账号管理</button>
-    </nav>
-    <button class="logout" onclick="logout()">退出</button>
-  </header>
+<div id="app-view" class="app-shell hidden">
+  <aside class="sidebar">
+    <div class="sidebar-brand">
+      <span class="brand-mark">✦</span>
+      <span class="brand-text">广告管理平台</span>
+    </div>
 
-  <main>
+    <div class="sidebar-scroll">
+      <div class="sidebar-section-title">渠道</div>
+
+      <div class="channel-group">
+        <div class="channel-header active">
+          <span class="channel-icon channel-icon-meta">M</span>
+          <span class="channel-name">Meta 广告</span>
+        </div>
+        <div class="channel-subnav">
+          <button class="subnav-item active" data-tab="accounts">账户总览</button>
+          <button class="subnav-item" data-tab="manage">广告管理</button>
+          <button class="subnav-item" data-tab="bm">BM账号管理</button>
+        </div>
+      </div>
+
+      <div class="channel-group is-disabled">
+        <div class="channel-header">
+          <span class="channel-icon channel-icon-google">G</span>
+          <span class="channel-name">Google 广告</span>
+          <span class="badge-soon">即将推出</span>
+        </div>
+      </div>
+
+      <div class="channel-group is-disabled">
+        <div class="channel-header">
+          <span class="channel-icon channel-icon-tiktok">T</span>
+          <span class="channel-name">TikTok 广告</span>
+          <span class="badge-soon">即将推出</span>
+        </div>
+      </div>
+    </div>
+
+    <div class="sidebar-footer">
+      <button class="logout-btn" onclick="logout()">退出登录</button>
+    </div>
+  </aside>
+
+  <main class="content">
     <!-- 账户总览 -->
     <section id="tab-accounts" class="tab-panel">
       <div class="panel-header">
-        <h3>广告账户列表</h3>
-        <button onclick="loadAccounts()">刷新</button>
+        <h1>账户总览</h1>
+        <button class="btn" onclick="loadAccounts()">刷新</button>
       </div>
-      <table class="grid">
-        <thead>
-          <tr><th>所属 BM</th><th>账户</th><th>ID</th><th>状态</th><th>货币</th><th>已花费</th><th>花费上限</th><th>剩余可花费</th><th>备注</th></tr>
-        </thead>
-        <tbody id="accounts-tbody"></tbody>
-      </table>
+      <div class="card table-card">
+        <table class="grid">
+          <thead>
+            <tr><th>所属 BM</th><th>账户</th><th>ID</th><th>状态</th><th>货币</th><th>已花费</th><th>花费上限</th><th>剩余可花费</th><th>备注</th></tr>
+          </thead>
+          <tbody id="accounts-tbody"></tbody>
+        </table>
+      </div>
       <div id="accounts-errors" class="result"></div>
     </section>
 
     <!-- 广告管理：点名称逐层下钻（系列→组→广告），字段对齐 Ads Manager -->
     <section id="tab-manage" class="tab-panel hidden">
       <div class="panel-header">
-        <h3>广告管理</h3>
-        <label style="font-size:13px;color:#666">BM</label>
-        <select id="manage-bm-select" onchange="onBMChangeForManage()"></select>
-        <label style="font-size:13px;color:#666">账户</label>
-        <select id="manage-account-select" onchange="onAccountChangeForManage()"></select>
-        <select id="manage-date-preset" onchange="loadManageTable()">
-          <option value="today">今天</option>
-          <option value="yesterday">昨天</option>
-          <option value="last_7d">近7天</option>
-          <option value="last_30d" selected>近30天</option>
-          <option value="last_90d">近90天</option>
-        </select>
-        <button onclick="loadAccounts()">刷新账户列表</button>
+        <h1>广告管理</h1>
+        <div class="header-controls">
+          <label class="field-label">BM</label>
+          <select id="manage-bm-select" onchange="onBMChangeForManage()"></select>
+          <label class="field-label">账户</label>
+          <select id="manage-account-select" onchange="onAccountChangeForManage()"></select>
+          <select id="manage-date-preset" onchange="loadManageTable()">
+            <option value="today">今天</option>
+            <option value="yesterday">昨天</option>
+            <option value="last_7d">近7天</option>
+            <option value="last_30d" selected>近30天</option>
+            <option value="last_90d">近90天</option>
+          </select>
+          <button class="btn btn-ghost" onclick="loadAccounts()">刷新账户列表</button>
+        </div>
       </div>
-      <div id="manage-empty-hint" class="result hidden" style="color:#d93025">
+
+      <div id="manage-empty-hint" class="alert alert-warn hidden">
         当前没有任何广告账户数据。请先到「BM账号管理」添加至少一个 Business Manager 的系统用户令牌。
       </div>
 
-      <div id="manage-breadcrumb" style="margin:10px 0;font-size:14px"></div>
+      <div id="manage-breadcrumb" class="breadcrumb"></div>
 
-      <div id="manage-create-area" style="margin:8px 0"></div>
+      <div id="manage-create-area" class="create-area"></div>
 
-      <div style="margin:8px 0;display:flex;gap:8px;align-items:center;flex-wrap:wrap">
-        <input id="manage-filter-text" placeholder="按名称筛选..." oninput="applyManageFilterSort()"
-               style="padding:7px 10px;border:1px solid #ddd;border-radius:6px;width:220px" />
-        <select id="manage-filter-status" onchange="applyManageFilterSort()"
-                style="padding:7px 10px;border:1px solid #ddd;border-radius:6px">
+      <div class="toolbar">
+        <input id="manage-filter-text" class="input-search" placeholder="按名称筛选..." oninput="applyManageFilterSort()" />
+        <select id="manage-filter-status" onchange="applyManageFilterSort()">
           <option value="ALL">全部状态</option>
           <option value="ACTIVE" selected>仅 ACTIVE</option>
           <option value="PAUSED">仅 PAUSED</option>
         </select>
-        <a href="#" onclick="resetManageFilterSort(); return false;" style="font-size:13px;color:#888">清除筛选/排序</a>
-        <span style="font-size:12px;color:#888">点表头可按该列排序</span>
+        <a href="#" class="link-muted" onclick="resetManageFilterSort(); return false;">清除筛选/排序</a>
+        <span class="hint-text">点表头可按该列排序</span>
       </div>
 
-      <div class="card" style="overflow-x:auto">
+      <div class="card table-card" style="overflow-x:auto">
         <table class="grid" id="manage-table" style="min-width:1400px">
           <thead id="manage-thead"></thead>
           <tbody id="manage-tbody"></tbody>
@@ -95,27 +133,31 @@
     <!-- BM账号管理 -->
     <section id="tab-bm" class="tab-panel hidden">
       <div class="panel-header">
-        <h3>Business Manager 凭证维护配置表</h3>
-        <button onclick="loadCredentials()">刷新</button>
+        <h1>BM 账号管理</h1>
+        <button class="btn" onclick="loadCredentials()">刷新</button>
       </div>
       <div class="card">
         <h4>新增一个 BM 系统用户令牌</h4>
-        <input id="bm-label" placeholder="BM 名称/备注，如：客户A - 主BM" />
-        <input id="bm-id" placeholder="Business Manager ID（可选）" />
-        <input id="bm-token" placeholder="系统用户长效访问令牌 (System User Access Token)" style="width:420px" />
-        <button onclick="addCredential()">校验并保存</button>
+        <div class="form-row">
+          <input id="bm-label" placeholder="BM 名称/备注，如：客户A - 主BM" />
+          <input id="bm-id" placeholder="Business Manager ID（可选）" />
+          <input id="bm-token" placeholder="系统用户长效访问令牌 (System User Access Token)" style="flex:1;min-width:280px" />
+          <button class="btn" onclick="addCredential()">校验并保存</button>
+        </div>
         <div id="bm-add-result" class="result"></div>
       </div>
-      <table class="grid">
-        <thead>
-          <tr><th>BM 名称</th><th>BM ID</th><th>令牌预览</th><th>状态</th><th>创建时间</th><th>操作</th></tr>
-        </thead>
-        <tbody id="bm-tbody"></tbody>
-      </table>
+      <div class="card table-card">
+        <table class="grid">
+          <thead>
+            <tr><th>BM 名称</th><th>BM ID</th><th>令牌预览</th><th>状态</th><th>创建时间</th><th>操作</th></tr>
+          </thead>
+          <tbody id="bm-tbody"></tbody>
+        </table>
+      </div>
     </section>
   </main>
 </div>
 
-<script src="/static/app.js?v=6"></script>
+<script src="/static/app.js?v=8"></script>
 </body>
 </html>

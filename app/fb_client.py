@@ -152,7 +152,7 @@ class FBClient:
             "name": name,
             "objective": objective,
             "status": status,
-            "special_ad_categories": special_ad_categories or [],
+            "special_ad_categories": _to_json(special_ad_categories or []),
         }
         return await self._post(f"{account_id}/campaigns", data)
 

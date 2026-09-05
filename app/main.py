@@ -11,7 +11,7 @@ from app.routers import accounts, campaigns, insights, credentials
 
 Base.metadata.create_all(bind=engine)
 
-app = FastAPI(title="Facebook 广告管理面板（多 Business Manager）")
+app = FastAPI(title="广告管理平台（Meta 已接入，Google/TikTok 等渠道待接入）")
 
 app.add_middleware(
     CORSMiddleware,

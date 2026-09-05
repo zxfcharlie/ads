@@ -36,9 +36,9 @@ function showApp() {
 window.onload = () => {
   if (TOKEN) showApp();
 
-  document.querySelectorAll(".tab-btn").forEach((btn) => {
+  document.querySelectorAll(".subnav-item").forEach((btn) => {
     btn.addEventListener("click", () => {
-      document.querySelectorAll(".tab-btn").forEach((b) => b.classList.remove("active"));
+      document.querySelectorAll(".subnav-item").forEach((b) => b.classList.remove("active"));
       document.querySelectorAll(".tab-panel").forEach((p) => p.classList.add("hidden"));
       btn.classList.add("active");
       document.getElementById("tab-" + btn.dataset.tab).classList.remove("hidden");
@@ -535,8 +535,8 @@ function reportManage(msg) {
 }
 
 function statusBadge(status) {
-  const active = status === "ACTIVE";
-  return `<span style="color:${active ? "#1a7f37" : "#888"}">${status}</span>`;
+  const cls = status === "ACTIVE" ? "status-active" : "status-paused";
+  return `<span class="status-pill ${cls}">${status}</span>`;
 }
 
 async function patchObject(kind, accountId, id, body) {
@@ -611,20 +611,50 @@ function renderCreateArea() {
     area.innerHTML = MANAGE.showCreateForm
       ? `
       <div class="card">
-        <h4>新建广告系列 Campaign</h4>
-        <input id="new-campaign-name" placeholder="系列名称" />
-        <select id="new-campaign-objective">
+        <h4>新建广告（系列 + 广告组 + 广告一起创建，先存草稿）</h4>
+        <p style="font-size:12px;color:#888;margin:-4px 0 10px">
+          Facebook 要求系列成套配置才有意义。这里一次性把三层都填好，创建后默认是 <b>PAUSED（草稿，不会花钱）</b>，
+          核对无误后点「发布上线」再统一切到 ACTIVE。
+        </p>
+
+        <div style="font-weight:600;margin-bottom:4px">1. 广告系列</div>
+        <input id="ql-campaign-name" placeholder="系列名称" />
+        <select id="ql-objective">
           <option value="OUTCOME_TRAFFIC">流量 Traffic</option>
           <option value="OUTCOME_ENGAGEMENT">互动 Engagement</option>
           <option value="OUTCOME_LEADS">潜在客户 Leads</option>
           <option value="OUTCOME_SALES">销售 Sales</option>
           <option value="OUTCOME_AWARENESS">品牌知名度 Awareness</option>
         </select>
-        <button onclick="submitCreateCampaign()">创建</button>
-        <button onclick="toggleCreateForm(false)" style="background:#888">取消</button>
+
+        <div style="font-weight:600;margin:14px 0 4px">2. 广告组</div>
+        <input id="ql-adset-name" placeholder="广告组名称" />
+        <input id="ql-adset-budget" type="number" step="0.01" placeholder="每日预算（美元，如 10 = $10.00）" />
+        <input id="ql-countries" placeholder="投放国家，逗号分隔，如 US,CA" value="US" />
+        <input id="ql-age-min" type="number" placeholder="最小年龄" value="18" />
+        <input id="ql-age-max" type="number" placeholder="最大年龄" value="65" />
+        <select id="ql-optimization">
+          <option value="LINK_CLICKS">链接点击</option>
+          <option value="IMPRESSIONS">曝光</option>
+          <option value="REACH">触达</option>
+          <option value="OFFSITE_CONVERSIONS">转化</option>
+        </select>
+
+        <div style="font-weight:600;margin:14px 0 4px">3. 广告素材 + 广告</div>
+        <input id="ql-ad-name" placeholder="广告名称" />
+        <input id="ql-page-id" placeholder="Facebook 主页 Page ID" />
+        <input id="ql-message" placeholder="正文文案" />
+        <input id="ql-link" placeholder="落地页链接 https://..." />
+        <input id="ql-headline" placeholder="标题（可选）" />
+        <input id="ql-image" type="file" accept="image/*" />
+
+        <div style="margin-top:14px">
+          <button onclick="submitQuickLaunch()">创建草稿（PAUSED，不会花钱）</button>
+          <button onclick="toggleCreateForm(false)" style="background:#888">取消</button>
+        </div>
         <div id="create-result" class="result"></div>
       </div>`
-      : `<button onclick="toggleCreateForm(true)">+ 新建广告系列</button>`;
+      : `<button onclick="toggleCreateForm(true)">+ 新建广告（系列+组+广告一起建）</button>`;
   } else if (MANAGE.level === "adsets") {
     area.innerHTML = MANAGE.showCreateForm
       ? `
@@ -670,18 +700,89 @@ function toggleCreateForm(show) {
   renderCreateArea();
 }
 
-async function submitCreateCampaign() {
-  const name = document.getElementById("new-campaign-name").value;
-  const objective = document.getElementById("new-campaign-objective").value;
+let LAST_DRAFT = null; // 记住最近一次整套创建出的 {campaign_id, adset_id, ad_id}，供"发布上线"使用
+
+async function submitQuickLaunch() {
   const box = document.getElementById("create-result");
-  if (!name) return (box.innerText = "请输入系列名称");
-  box.innerText = "创建中...";
+  const campaign_name = document.getElementById("ql-campaign-name").value;
+  const objective = document.getElementById("ql-objective").value;
+  const adset_name = document.getElementById("ql-adset-name").value;
+  const budgetDollars = parseFloat(document.getElementById("ql-adset-budget").value);
+  const countries = document.getElementById("ql-countries").value.split(",").map((s) => s.trim()).filter(Boolean);
+  const age_min = parseInt(document.getElementById("ql-age-min").value, 10);
+  const age_max = parseInt(document.getElementById("ql-age-max").value, 10);
+  const optimization_goal = document.getElementById("ql-optimization").value;
+  const ad_name = document.getElementById("ql-ad-name").value;
+  const page_id = document.getElementById("ql-page-id").value;
+  const message = document.getElementById("ql-message").value;
+  const link = document.getElementById("ql-link").value;
+  const headline = document.getElementById("ql-headline").value;
+  const fileInput = document.getElementById("ql-image");
+
+  if (!campaign_name || !adset_name || isNaN(budgetDollars) || budgetDollars <= 0 || !ad_name || !page_id || !message || !link) {
+    box.innerText = "请完整填写：系列名称、广告组名称与有效预算、广告名称、主页ID、正文文案、落地页链接";
+    return;
+  }
+
+  box.innerText = "创建中...（系列 → 广告组 → 素材 → 广告，依次进行，请稍候）";
   try {
-    await apiJSON(`/api/accounts/${MANAGE.accountId}/campaigns`, { name, objective });
-    MANAGE.showCreateForm = false;
+    let image_hash = null;
+    if (fileInput.files.length) {
+      const fd = new FormData();
+      fd.append("file", fileInput.files[0]);
+      const uploadRes = await fetch(`/api/accounts/${MANAGE.accountId}/images`, {
+        method: "POST",
+        headers: { "Authorization": "Bearer " + TOKEN },
+        body: fd,
+      });
+      const uploadData = await uploadRes.json();
+      if (!uploadRes.ok) throw new Error(JSON.stringify(uploadData.detail));
+      const firstKey = Object.keys(uploadData.images || {})[0];
+      image_hash = firstKey ? uploadData.images[firstKey].hash : null;
+    }
+
+    const result = await apiJSON(`/api/accounts/${MANAGE.accountId}/quick_launch`, {
+      campaign_name,
+      objective,
+      adset_name,
+      daily_budget_cents: Math.round(budgetDollars * 100),
+      countries,
+      age_min,
+      age_max,
+      optimization_goal,
+      ad_name,
+      page_id,
+      message,
+      link,
+      headline,
+      image_hash,
+    });
+
+    LAST_DRAFT = result;
+    box.innerHTML = `草稿创建成功（当前是 PAUSED，不会花钱）。核对无误后：
+      <button onclick="publishDraft()">发布上线（切到 ACTIVE）</button>`;
     loadManageTable();
   } catch (e) {
     box.innerText = "创建失败：" + e.message;
+  }
+}
+
+async function publishDraft() {
+  if (!LAST_DRAFT) return;
+  const box = document.getElementById("create-result");
+  box.innerText = "发布中...";
+  try {
+    await apiJSON(`/api/accounts/${MANAGE.accountId}/publish`, {
+      campaign_id: LAST_DRAFT.campaign_id,
+      adset_id: LAST_DRAFT.adset_id,
+      ad_id: LAST_DRAFT.ad_id,
+    });
+    box.innerText = "发布成功，已上线（ACTIVE）";
+    LAST_DRAFT = null;
+    MANAGE.showCreateForm = false;
+    loadManageTable();
+  } catch (e) {
+    box.innerText = "发布失败：" + e.message;
   }
 }
 
