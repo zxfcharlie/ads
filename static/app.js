@@ -123,13 +123,7 @@ async function saveNote(accountId, note) {
 }
 
 function fillAccountSelects() {
-  const opts = ACCOUNTS.map((a) => `<option value="${a.id}">${a.name} (${a.id})</option>`).join("");
-  const el = document.getElementById("create-account-select");
-  if (el) el.innerHTML = opts;
   fillManageBMSelect();
-  if (ACCOUNTS.length) {
-    onAccountChangeForCreate();
-  }
 }
 
 // ---- 广告管理：BM -> 账户 级联选择 ----
@@ -164,116 +158,6 @@ function onBMChangeForManage() {
     .map((a) => `<option value="${a.id}">${a.name} (${a.id})</option>`)
     .join("");
   onAccountChangeForManage();
-}
-
-// ---------------- 创建广告流程 ----------------
-async function onAccountChangeForCreate() {
-  const accountId = document.getElementById("create-account-select").value;
-  if (!accountId) return;
-  try {
-    const campaigns = await api(`/api/accounts/${accountId}/campaigns`);
-    const opts = (campaigns.data || [])
-      .map((c) => `<option value="${c.id}">${c.name} (${c.status})</option>`)
-      .join("");
-    document.getElementById("as-campaign-select").innerHTML = opts;
-
-    const adsets = await api(`/api/accounts/${accountId}/adsets`);
-    const asOpts = (adsets.data || [])
-      .map((s) => `<option value="${s.id}">${s.name}</option>`)
-      .join("");
-    document.getElementById("ad-adset-select").innerHTML = asOpts;
-  } catch (e) {
-    console.error(e);
-  }
-}
-
-async function createCampaign() {
-  const accountId = document.getElementById("create-account-select").value;
-  const name = document.getElementById("c-name").value;
-  const objective = document.getElementById("c-objective").value;
-  const box = document.getElementById("campaign-result");
-  if (!name) return (box.innerText = "请输入系列名称");
-  try {
-    const result = await apiJSON(`/api/accounts/${accountId}/campaigns`, { name, objective });
-    box.innerText = "创建成功，Campaign ID: " + result.id;
-    onAccountChangeForCreate();
-  } catch (e) {
-    box.innerText = "创建失败：" + e.message;
-  }
-}
-
-async function createAdSet() {
-  const accountId = document.getElementById("create-account-select").value;
-  const campaign_id = document.getElementById("as-campaign-select").value;
-  const name = document.getElementById("as-name").value;
-  const daily_budget_cents = parseInt(document.getElementById("as-budget").value, 10);
-  const countries = document.getElementById("as-countries").value.split(",").map((s) => s.trim()).filter(Boolean);
-  const age_min = parseInt(document.getElementById("as-age-min").value, 10);
-  const age_max = parseInt(document.getElementById("as-age-max").value, 10);
-  const optimization_goal = document.getElementById("as-optimization").value;
-  const box = document.getElementById("adset-result");
-  if (!campaign_id || !name || !daily_budget_cents) return (box.innerText = "请完整填写");
-  try {
-    const result = await apiJSON(`/api/accounts/${accountId}/adsets`, {
-      name, campaign_id, daily_budget_cents, countries, age_min, age_max, optimization_goal,
-    });
-    box.innerText = "创建成功，AdSet ID: " + result.id;
-    onAccountChangeForCreate();
-  } catch (e) {
-    box.innerText = "创建失败：" + e.message;
-  }
-}
-
-async function uploadImageThenCreative() {
-  const accountId = document.getElementById("create-account-select").value;
-  const fileInput = document.getElementById("cr-image-file");
-  const box = document.getElementById("creative-result");
-  let image_hash = null;
-
-  try {
-    if (fileInput.files.length) {
-      const fd = new FormData();
-      fd.append("file", fileInput.files[0]);
-      const uploadRes = await fetch(`/api/accounts/${accountId}/images`, {
-        method: "POST",
-        headers: { "Authorization": "Bearer " + TOKEN },
-        body: fd,
-      });
-      const uploadData = await uploadRes.json();
-      if (!uploadRes.ok) throw new Error(JSON.stringify(uploadData.detail));
-      const firstKey = Object.keys(uploadData.images || {})[0];
-      image_hash = firstKey ? uploadData.images[firstKey].hash : null;
-    }
-
-    const body = {
-      name: document.getElementById("cr-name").value,
-      page_id: document.getElementById("cr-page-id").value,
-      message: document.getElementById("cr-message").value,
-      link: document.getElementById("cr-link").value,
-      headline: document.getElementById("cr-headline").value,
-      image_hash,
-    };
-    const result = await apiJSON(`/api/accounts/${accountId}/creatives`, body);
-    box.innerText = "创建成功，Creative ID: " + result.id;
-    document.getElementById("ad-creative-id").value = result.id;
-  } catch (e) {
-    box.innerText = "创建失败：" + e.message;
-  }
-}
-
-async function createAd() {
-  const accountId = document.getElementById("create-account-select").value;
-  const adset_id = document.getElementById("ad-adset-select").value;
-  const name = document.getElementById("ad-name").value;
-  const creative_id = document.getElementById("ad-creative-id").value;
-  const box = document.getElementById("ad-result");
-  if (!adset_id || !name || !creative_id) return (box.innerText = "请完整填写");
-  try {
-    const result = await apiJSON(`/api/accounts/${accountId}/ads`, { name, adset_id, creative_id });
-    box.innerText = "创建成功，Ad ID: " + result.id;
-  } catch (e) {
-    box.innerText = "创建失败：" + e.message;
-  }
 }
 
 // ---------------- BM 账号管理 ----------------
@@ -360,6 +244,7 @@ const MANAGE = {
   rawRows: [],
   sortKey: null,
   sortDir: 1, // 1 = 升序, -1 = 降序
+  showCreateForm: false,
 };
 
 const MANAGE_COLUMNS = [
@@ -441,7 +326,7 @@ function getSortValue(row, key) {
 
 function resetManageFilterSort() {
   document.getElementById("manage-filter-text").value = "";
-  document.getElementById("manage-filter-status").value = "ALL";
+  document.getElementById("manage-filter-status").value = "ACTIVE";
   MANAGE.sortKey = null;
   MANAGE.sortDir = 1;
   applyManageFilterSort();
@@ -497,9 +382,10 @@ function clearManageFilterInputsOnly() {
   const textEl = document.getElementById("manage-filter-text");
   const statusEl = document.getElementById("manage-filter-status");
   if (textEl) textEl.value = "";
-  if (statusEl) statusEl.value = "ALL";
+  if (statusEl) statusEl.value = "ACTIVE";
   MANAGE.sortKey = null;
   MANAGE.sortDir = 1;
+  MANAGE.showCreateForm = false;
 }
 
 async function onAccountChangeForManage() {
@@ -541,6 +427,7 @@ function drillIntoAdset(id, name) {
 async function loadManageTable() {
   renderManageHeader();
   renderBreadcrumb();
+  renderCreateArea();
   const tbody = document.getElementById("manage-tbody");
   const colCount = MANAGE_COLUMNS.length;
 
@@ -597,7 +484,15 @@ function renderManageRows(rows) {
       let budgetCell = "-";
       if (kind !== "ads") {
         if (r.has_own_budget) {
-          budgetCell = `${fmtMoney(r.budget_cents / 100)}${r.budget_type === "lifetime" ? "(总)" : ""} <a href="#" onclick="editBudget('${kind}','${r.id}', ${r.budget_cents}); return false;" title="修改预算">✎</a>`;
+          const dollars = (r.budget_cents / 100).toFixed(2);
+          budgetCell = `
+            <span style="display:inline-flex;align-items:center;gap:3px;white-space:nowrap">
+              $<input type="number" step="0.01" min="0" value="${dollars}"
+                 id="budget-input-${r.id}" data-budget-type="${r.budget_type || "daily"}"
+                 style="width:72px;padding:2px 4px;border:1px solid #ccc;border-radius:4px" />
+              <button onclick="saveBudgetInline('${kind}','${r.id}')" style="padding:3px 8px;font-size:12px">保存</button>
+              ${r.budget_type === "lifetime" ? '<span style="font-size:11px;color:#888">(总)</span>' : ""}
+            </span>`;
         } else {
           budgetCell = `<span style="color:#888">使用${kind === "campaigns" ? "广告组" : "广告系列"}预算</span>`;
         }
@@ -671,13 +566,20 @@ async function toggleManageStatus(kind, id, currentStatus) {
   }
 }
 
-async function editBudget(kind, id, currentBudgetCents) {
-  const input = prompt("输入新的预算金额（最小货币单位，如 1000 = $10.00）：", currentBudgetCents || "");
-  if (input === null || input === "") return;
-  const cents = parseInt(input, 10);
-  if (isNaN(cents)) return alert("请输入有效数字");
+async function saveBudgetInline(kind, id) {
+  const input = document.getElementById(`budget-input-${id}`);
+  if (!input) return;
+  const dollars = parseFloat(input.value);
+  if (isNaN(dollars) || dollars < 0) {
+    reportManage("请输入有效的预算金额");
+    return;
+  }
+  const cents = Math.round(dollars * 100);
+  const body = input.dataset.budgetType === "lifetime"
+    ? { lifetime_budget_cents: cents }
+    : { daily_budget_cents: cents };
   try {
-    await patchObject(kind, MANAGE.accountId, id, { daily_budget_cents: cents });
+    await patchObject(kind, MANAGE.accountId, id, body);
     reportManage("预算更新成功");
     loadManageTable();
   } catch (e) {
@@ -693,5 +595,172 @@ async function doDuplicate(kind, id) {
     loadManageTable();
   } catch (e) {
     reportManage("复制失败：" + e.message);
+  }
+}
+
+// ---------------- 分层创建：先建广告系列 → 进去后建广告组 → 再进去建广告 ----------------
+function renderCreateArea() {
+  const area = document.getElementById("manage-create-area");
+  if (!area) return;
+  if (!MANAGE.accountId) {
+    area.innerHTML = "";
+    return;
+  }
+
+  if (MANAGE.level === "campaigns") {
+    area.innerHTML = MANAGE.showCreateForm
+      ? `
+      <div class="card">
+        <h4>新建广告系列 Campaign</h4>
+        <input id="new-campaign-name" placeholder="系列名称" />
+        <select id="new-campaign-objective">
+          <option value="OUTCOME_TRAFFIC">流量 Traffic</option>
+          <option value="OUTCOME_ENGAGEMENT">互动 Engagement</option>
+          <option value="OUTCOME_LEADS">潜在客户 Leads</option>
+          <option value="OUTCOME_SALES">销售 Sales</option>
+          <option value="OUTCOME_AWARENESS">品牌知名度 Awareness</option>
+        </select>
+        <button onclick="submitCreateCampaign()">创建</button>
+        <button onclick="toggleCreateForm(false)" style="background:#888">取消</button>
+        <div id="create-result" class="result"></div>
+      </div>`
+      : `<button onclick="toggleCreateForm(true)">+ 新建广告系列</button>`;
+  } else if (MANAGE.level === "adsets") {
+    area.innerHTML = MANAGE.showCreateForm
+      ? `
+      <div class="card">
+        <h4>在「${MANAGE.campaignName}」下新建广告组 AdSet</h4>
+        <input id="new-adset-name" placeholder="广告组名称" />
+        <input id="new-adset-budget" type="number" step="0.01" placeholder="每日预算（美元，如 10 = $10.00）" />
+        <input id="new-adset-countries" placeholder="投放国家，逗号分隔，如 US,CA" value="US" />
+        <input id="new-adset-age-min" type="number" placeholder="最小年龄" value="18" />
+        <input id="new-adset-age-max" type="number" placeholder="最大年龄" value="65" />
+        <select id="new-adset-optimization">
+          <option value="LINK_CLICKS">链接点击</option>
+          <option value="IMPRESSIONS">曝光</option>
+          <option value="REACH">触达</option>
+          <option value="OFFSITE_CONVERSIONS">转化</option>
+        </select>
+        <button onclick="submitCreateAdSet()">创建</button>
+        <button onclick="toggleCreateForm(false)" style="background:#888">取消</button>
+        <div id="create-result" class="result"></div>
+      </div>`
+      : `<button onclick="toggleCreateForm(true)">+ 新建广告组</button>`;
+  } else if (MANAGE.level === "ads") {
+    area.innerHTML = MANAGE.showCreateForm
+      ? `
+      <div class="card">
+        <h4>在「${MANAGE.adsetName}」下新建广告 Ad</h4>
+        <input id="new-ad-name" placeholder="广告名称" />
+        <input id="new-ad-page-id" placeholder="Facebook 主页 Page ID" />
+        <input id="new-ad-message" placeholder="正文文案" />
+        <input id="new-ad-link" placeholder="落地页链接 https://..." />
+        <input id="new-ad-headline" placeholder="标题（可选）" />
+        <input id="new-ad-image" type="file" accept="image/*" />
+        <button onclick="submitCreateAd()">创建广告</button>
+        <button onclick="toggleCreateForm(false)" style="background:#888">取消</button>
+        <div id="create-result" class="result"></div>
+      </div>`
+      : `<button onclick="toggleCreateForm(true)">+ 新建广告</button>`;
+  }
+}
+
+function toggleCreateForm(show) {
+  MANAGE.showCreateForm = show;
+  renderCreateArea();
+}
+
+async function submitCreateCampaign() {
+  const name = document.getElementById("new-campaign-name").value;
+  const objective = document.getElementById("new-campaign-objective").value;
+  const box = document.getElementById("create-result");
+  if (!name) return (box.innerText = "请输入系列名称");
+  box.innerText = "创建中...";
+  try {
+    await apiJSON(`/api/accounts/${MANAGE.accountId}/campaigns`, { name, objective });
+    MANAGE.showCreateForm = false;
+    loadManageTable();
+  } catch (e) {
+    box.innerText = "创建失败：" + e.message;
+  }
+}
+
+async function submitCreateAdSet() {
+  const name = document.getElementById("new-adset-name").value;
+  const dollars = parseFloat(document.getElementById("new-adset-budget").value);
+  const countries = document.getElementById("new-adset-countries").value.split(",").map((s) => s.trim()).filter(Boolean);
+  const age_min = parseInt(document.getElementById("new-adset-age-min").value, 10);
+  const age_max = parseInt(document.getElementById("new-adset-age-max").value, 10);
+  const optimization_goal = document.getElementById("new-adset-optimization").value;
+  const box = document.getElementById("create-result");
+  if (!name || isNaN(dollars) || dollars <= 0) return (box.innerText = "请填写广告组名称和有效的每日预算");
+  box.innerText = "创建中...";
+  try {
+    await apiJSON(`/api/accounts/${MANAGE.accountId}/adsets`, {
+      name,
+      campaign_id: MANAGE.campaignId,
+      daily_budget_cents: Math.round(dollars * 100),
+      countries,
+      age_min,
+      age_max,
+      optimization_goal,
+    });
+    MANAGE.showCreateForm = false;
+    loadManageTable();
+  } catch (e) {
+    box.innerText = "创建失败：" + e.message;
+  }
+}
+
+async function submitCreateAd() {
+  const box = document.getElementById("create-result");
+  const name = document.getElementById("new-ad-name").value;
+  const page_id = document.getElementById("new-ad-page-id").value;
+  const message = document.getElementById("new-ad-message").value;
+  const link = document.getElementById("new-ad-link").value;
+  const headline = document.getElementById("new-ad-headline").value;
+  const fileInput = document.getElementById("new-ad-image");
+
+  if (!name || !page_id || !message || !link) {
+    box.innerText = "请完整填写广告名称、主页ID、正文文案、落地页链接";
+    return;
+  }
+
+  box.innerText = "创建中...（上传素材 → 创建创意 → 创建广告）";
+  try {
+    let image_hash = null;
+    if (fileInput.files.length) {
+      const fd = new FormData();
+      fd.append("file", fileInput.files[0]);
+      const uploadRes = await fetch(`/api/accounts/${MANAGE.accountId}/images`, {
+        method: "POST",
+        headers: { "Authorization": "Bearer " + TOKEN },
+        body: fd,
+      });
+      const uploadData = await uploadRes.json();
+      if (!uploadRes.ok) throw new Error(JSON.stringify(uploadData.detail));
+      const firstKey = Object.keys(uploadData.images || {})[0];
+      image_hash = firstKey ? uploadData.images[firstKey].hash : null;
+    }
+
+    const creative = await apiJSON(`/api/accounts/${MANAGE.accountId}/creatives`, {
+      name: name + " - 素材",
+      page_id,
+      message,
+      link,
+      headline,
+      image_hash,
+    });
+
+    await apiJSON(`/api/accounts/${MANAGE.accountId}/ads`, {
+      name,
+      adset_id: MANAGE.adsetId,
+      creative_id: creative.id,
+    });
+
+    MANAGE.showCreateForm = false;
+    loadManageTable();
+  } catch (e) {
+    box.innerText = "创建失败：" + e.message;
   }
 }
