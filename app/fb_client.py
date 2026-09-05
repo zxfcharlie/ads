@@ -80,12 +80,23 @@ class FBClient:
             "spend,impressions,clicks,ctr,cpc,cpm,reach,frequency,"
             "actions,account_currency,date_start,date_stop"
         )
+
+        if breakdown_by_campaign:
+            # 按广告系列拆分：必须显式要 campaign_name，否则 Facebook 只给 campaign_id
+            fields += ",campaign_id,campaign_name"
+
         params = {
             "fields": fields,
             "date_preset": date_preset,
             "level": "campaign" if breakdown_by_campaign else level,
             "limit": 500,
         }
+
+        if not breakdown_by_campaign:
+            # 不按广告系列拆分时，默认按天拆分，否则 Facebook 会把整个 date_preset
+            # 时间段汇总成唯一一行数据，图表就只有一根巨大的柱子而不是逐日走势。
+            params["time_increment"] = 1
+
         return await self._get(f"{account_id}/insights", params)
 
     # ---------- 广告系列 / 广告组 / 广告 ----------
