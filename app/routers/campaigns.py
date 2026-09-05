@@ -1,11 +1,12 @@
-from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Form
+from fastapi import APIRouter, Depends, HTTPException, UploadFile, File
 from sqlalchemy.orm import Session
 from pydantic import BaseModel
 from typing import Optional
 
-from app.fb_client import FBClient, FBAPIError
+from app.fb_client import FBAPIError
 from app.database import get_db
 from app.models import OperationLog
+from app.resolver import get_client_for_account
 
 router = APIRouter(prefix="/api", tags=["campaigns"])
 
@@ -17,8 +18,8 @@ def _log(db: Session, account_id: str, action: str, detail: str, status: str = "
 
 # ---------------- Campaign ----------------
 @router.get("/accounts/{account_id}/campaigns")
-async def list_campaigns(account_id: str):
-    client = FBClient()
+async def list_campaigns(account_id: str, db: Session = Depends(get_db)):
+    client = await get_client_for_account(account_id, db)
     try:
         return await client.list_campaigns(account_id)
     except FBAPIError as e:
@@ -34,7 +35,7 @@ class CampaignIn(BaseModel):
 
 @router.post("/accounts/{account_id}/campaigns")
 async def create_campaign(account_id: str, body: CampaignIn, db: Session = Depends(get_db)):
-    client = FBClient()
+    client = await get_client_for_account(account_id, db)
     try:
         result = await client.create_campaign(
             account_id, body.name, body.objective, body.status, body.special_ad_categories
@@ -48,8 +49,8 @@ async def create_campaign(account_id: str, body: CampaignIn, db: Session = Depen
 
 # ---------------- AdSet ----------------
 @router.get("/accounts/{account_id}/adsets")
-async def list_adsets(account_id: str, campaign_id: Optional[str] = None):
-    client = FBClient()
+async def list_adsets(account_id: str, campaign_id: Optional[str] = None, db: Session = Depends(get_db)):
+    client = await get_client_for_account(account_id, db)
     try:
         return await client.list_adsets(account_id, campaign_id)
     except FBAPIError as e:
@@ -73,7 +74,7 @@ class AdSetIn(BaseModel):
 
 @router.post("/accounts/{account_id}/adsets")
 async def create_adset(account_id: str, body: AdSetIn, db: Session = Depends(get_db)):
-    client = FBClient()
+    client = await get_client_for_account(account_id, db)
     targeting = {
         "geo_locations": {"countries": body.countries},
         "age_min": body.age_min,
@@ -114,7 +115,7 @@ class CreativeIn(BaseModel):
 
 @router.post("/accounts/{account_id}/creatives")
 async def create_creative(account_id: str, body: CreativeIn, db: Session = Depends(get_db)):
-    client = FBClient()
+    client = await get_client_for_account(account_id, db)
     try:
         result = await client.create_ad_creative(
             account_id, body.name, body.page_id, body.message, body.link,
@@ -128,8 +129,8 @@ async def create_creative(account_id: str, body: CreativeIn, db: Session = Depen
 
 
 @router.post("/accounts/{account_id}/images")
-async def upload_image(account_id: str, file: UploadFile = File(...)):
-    client = FBClient()
+async def upload_image(account_id: str, file: UploadFile = File(...), db: Session = Depends(get_db)):
+    client = await get_client_for_account(account_id, db)
     content = await file.read()
     try:
         return await client.upload_image(account_id, content, file.filename)
@@ -138,8 +139,8 @@ async def upload_image(account_id: str, file: UploadFile = File(...)):
 
 
 @router.get("/accounts/{account_id}/ads")
-async def list_ads(account_id: str, adset_id: Optional[str] = None):
-    client = FBClient()
+async def list_ads(account_id: str, adset_id: Optional[str] = None, db: Session = Depends(get_db)):
+    client = await get_client_for_account(account_id, db)
     try:
         return await client.list_ads(account_id, adset_id)
     except FBAPIError as e:
@@ -155,7 +156,7 @@ class AdIn(BaseModel):
 
 @router.post("/accounts/{account_id}/ads")
 async def create_ad(account_id: str, body: AdIn, db: Session = Depends(get_db)):
-    client = FBClient()
+    client = await get_client_for_account(account_id, db)
     try:
         result = await client.create_ad(
             account_id, body.name, body.adset_id, body.creative_id, body.status
@@ -171,13 +172,14 @@ class StatusIn(BaseModel):
     status: str  # ACTIVE / PAUSED / ARCHIVED / DELETED
 
 
-@router.post("/objects/{object_id}/status")
-async def update_status(object_id: str, body: StatusIn, db: Session = Depends(get_db)):
-    client = FBClient()
+@router.post("/accounts/{account_id}/objects/{object_id}/status")
+async def update_status(account_id: str, object_id: str, body: StatusIn, db: Session = Depends(get_db)):
+    """account_id 用于定位应使用哪个 BM 的 token，object_id 可以是 campaign/adset/ad 的 ID"""
+    client = await get_client_for_account(account_id, db)
     try:
         result = await client.update_status(object_id, body.status)
-        _log(db, object_id, "update_status", body.status)
+        _log(db, account_id, "update_status", f"{object_id}->{body.status}")
         return result
     except FBAPIError as e:
-        _log(db, object_id, "update_status", str(e), "failed")
+        _log(db, account_id, "update_status", str(e), "failed")
         raise HTTPException(status_code=e.status_code, detail=str(e))

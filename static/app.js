@@ -4,14 +4,15 @@ let chartInstance = null;
 
 // ---------------- 登录 ----------------
 async function doLogin() {
+  const username = document.getElementById("username").value;
   const pw = document.getElementById("pw").value;
   const res = await fetch("/api/login", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ password: pw }),
+    body: JSON.stringify({ username, password: pw }),
   });
   if (!res.ok) {
-    document.getElementById("login-err").innerText = "口令错误";
+    document.getElementById("login-err").innerText = "账号或密码错误";
     return;
   }
   const data = await res.json();
@@ -42,13 +43,14 @@ window.onload = () => {
       document.querySelectorAll(".tab-panel").forEach((p) => p.classList.add("hidden"));
       btn.classList.add("active");
       document.getElementById("tab-" + btn.dataset.tab).classList.remove("hidden");
+      if (btn.dataset.tab === "bm") loadCredentials();
     });
   });
 };
 
 // ---------------- 通用请求 ----------------
 async function api(path, options = {}) {
-  options.headers = Object.assign({}, options.headers, { "X-Panel-Token": TOKEN });
+  options.headers = Object.assign({}, options.headers, { "Authorization": "Bearer " + TOKEN });
   const res = await fetch(path, options);
   if (res.status === 401) {
     logout();
@@ -78,7 +80,7 @@ function money(cents, currency) {
 // ---------------- 账户总览 ----------------
 async function loadAccounts() {
   const tbody = document.getElementById("accounts-tbody");
-  tbody.innerHTML = "<tr><td colspan='8'>加载中...</td></tr>";
+  tbody.innerHTML = "<tr><td colspan='9'>加载中...</td></tr>";
   try {
     const res = await api("/api/accounts");
     ACCOUNTS = res.data || [];
@@ -86,6 +88,7 @@ async function loadAccounts() {
     ACCOUNTS.forEach((a) => {
       const tr = document.createElement("tr");
       tr.innerHTML = `
+        <td>${a.bm_label || "-"}</td>
         <td>${a.name || "-"}</td>
         <td>${a.id}</td>
         <td>${a.account_status}</td>
@@ -97,9 +100,17 @@ async function loadAccounts() {
       `;
       tbody.appendChild(tr);
     });
+    const errBox = document.getElementById("accounts-errors");
+    if (res.errors && res.errors.length) {
+      errBox.innerHTML = res.errors
+        .map((e) => `<div style="color:#d93025">「${e.credential}」凭证拉取失败：${e.error}</div>`)
+        .join("");
+    } else {
+      errBox.innerHTML = "";
+    }
     fillAccountSelects();
   } catch (e) {
-    tbody.innerHTML = `<tr><td colspan='8' style="color:red">加载失败：${e.message}</td></tr>`;
+    tbody.innerHTML = `<tr><td colspan='9' style="color:red">加载失败：${e.message}</td></tr>`;
   }
 }
 
@@ -193,7 +204,7 @@ async function uploadImageThenCreative() {
       fd.append("file", fileInput.files[0]);
       const uploadRes = await fetch(`/api/accounts/${accountId}/images`, {
         method: "POST",
-        headers: { "X-Panel-Token": TOKEN },
+        headers: { "Authorization": "Bearer " + TOKEN },
         body: fd,
       });
       const uploadData = await uploadRes.json();
@@ -340,5 +351,77 @@ async function setSpendCap() {
     loadBudgetInfo();
   } catch (e) {
     box.innerText = "更新失败：" + e.message;
+  }
+}
+
+// ---------------- BM 账号管理 ----------------
+async function loadCredentials() {
+  const tbody = document.getElementById("bm-tbody");
+  tbody.innerHTML = "<tr><td colspan='6'>加载中...</td></tr>";
+  try {
+    const rows = await api("/api/credentials");
+    tbody.innerHTML = "";
+    rows.forEach((r) => {
+      const tr = document.createElement("tr");
+      tr.innerHTML = `
+        <td>${r.label}</td>
+        <td>${r.bm_id || "-"}</td>
+        <td><code>${r.token_preview}</code></td>
+        <td>${r.is_active ? "启用" : "已停用"}</td>
+        <td>${new Date(r.created_at).toLocaleString()}</td>
+        <td>
+          <button onclick="toggleCredential(${r.id}, ${!r.is_active})">${r.is_active ? "停用" : "启用"}</button>
+          <button onclick="deleteCredential(${r.id})">删除</button>
+        </td>
+      `;
+      tbody.appendChild(tr);
+    });
+  } catch (e) {
+    tbody.innerHTML = `<tr><td colspan='6' style="color:red">加载失败：${e.message}</td></tr>`;
+  }
+}
+
+async function addCredential() {
+  const label = document.getElementById("bm-label").value;
+  const bm_id = document.getElementById("bm-id").value;
+  const access_token = document.getElementById("bm-token").value;
+  const box = document.getElementById("bm-add-result");
+  if (!label || !access_token) return (box.innerText = "请填写 BM 名称和令牌");
+  box.innerText = "校验中...";
+  try {
+    await apiJSON("/api/credentials", { label, bm_id, access_token });
+    box.innerText = "添加成功";
+    document.getElementById("bm-label").value = "";
+    document.getElementById("bm-id").value = "";
+    document.getElementById("bm-token").value = "";
+    loadCredentials();
+    loadAccounts();
+  } catch (e) {
+    box.innerText = "添加失败：" + e.message;
+  }
+}
+
+async function toggleCredential(id, newState) {
+  try {
+    await api(`/api/credentials/${id}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ is_active: newState }),
+    });
+    loadCredentials();
+    loadAccounts();
+  } catch (e) {
+    alert("操作失败：" + e.message);
+  }
+}
+
+async function deleteCredential(id) {
+  if (!confirm("确定删除这个 BM 凭证吗？该操作不可恢复。")) return;
+  try {
+    await api(`/api/credentials/${id}`, { method: "DELETE" });
+    loadCredentials();
+    loadAccounts();
+  } catch (e) {
+    alert("删除失败：" + e.message);
   }
 }

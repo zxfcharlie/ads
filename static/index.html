@@ -12,8 +12,9 @@
 <div id="login-view" class="login-view">
   <div class="login-box">
     <h2>Facebook 广告管理面板</h2>
-    <input id="pw" type="password" placeholder="访问口令" />
-    <button onclick="doLogin()">进入</button>
+    <input id="username" type="text" placeholder="账号" autocomplete="username" />
+    <input id="pw" type="password" placeholder="密码" autocomplete="current-password" />
+    <button onclick="doLogin()">登录</button>
     <p id="login-err" class="err"></p>
   </div>
 </div>
@@ -26,6 +27,7 @@
       <button class="tab-btn" data-tab="create">创建广告</button>
       <button class="tab-btn" data-tab="insights">数据分析</button>
       <button class="tab-btn" data-tab="budget">额度管理</button>
+      <button class="tab-btn" data-tab="bm">BM账号管理</button>
     </nav>
     <button class="logout" onclick="logout()">退出</button>
   </header>
@@ -39,10 +41,11 @@
       </div>
       <table class="grid">
         <thead>
-          <tr><th>账户</th><th>ID</th><th>状态</th><th>货币</th><th>已花费</th><th>余额</th><th>花费上限</th><th>备注</th></tr>
+          <tr><th>所属 BM</th><th>账户</th><th>ID</th><th>状态</th><th>货币</th><th>已花费</th><th>余额</th><th>花费上限</th><th>备注</th></tr>
         </thead>
         <tbody id="accounts-tbody"></tbody>
       </table>
+      <div id="accounts-errors" class="result"></div>
     </section>
 
     <!-- 创建广告 -->
@@ -138,6 +141,28 @@
         <button onclick="setSpendCap()">更新花费上限</button>
         <div id="budget-result" class="result"></div>
       </div>
+    </section>
+
+    <!-- BM账号管理 -->
+    <section id="tab-bm" class="tab-panel hidden">
+      <div class="panel-header">
+        <h3>Business Manager 凭证维护配置表</h3>
+        <button onclick="loadCredentials()">刷新</button>
+      </div>
+      <div class="card">
+        <h4>新增一个 BM 系统用户令牌</h4>
+        <input id="bm-label" placeholder="BM 名称/备注，如：客户A - 主BM" />
+        <input id="bm-id" placeholder="Business Manager ID（可选）" />
+        <input id="bm-token" placeholder="系统用户长效访问令牌 (System User Access Token)" style="width:420px" />
+        <button onclick="addCredential()">校验并保存</button>
+        <div id="bm-add-result" class="result"></div>
+      </div>
+      <table class="grid">
+        <thead>
+          <tr><th>BM 名称</th><th>BM ID</th><th>令牌预览</th><th>状态</th><th>创建时间</th><th>操作</th></tr>
+        </thead>
+        <tbody id="bm-tbody"></tbody>
+      </table>
     </section>
   </main>
 </div>

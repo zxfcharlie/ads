@@ -4,33 +4,45 @@ from pydantic import BaseModel
 
 from app.fb_client import FBClient, FBAPIError
 from app.database import get_db
-from app.models import AccountNote, OperationLog
+from app.models import AccountNote, OperationLog, BMCredential, AccountCredentialMap
+from app.resolver import get_client_for_account, _upsert_map
 
 router = APIRouter(prefix="/api/accounts", tags=["accounts"])
 
 
 @router.get("")
 async def list_accounts(db: Session = Depends(get_db)):
-    client = FBClient()
-    try:
-        result = await client.list_ad_accounts()
-    except FBAPIError as e:
-        raise HTTPException(status_code=e.status_code, detail=str(e))
-
+    """聚合所有已配置的 Business Manager 下的广告账户"""
+    creds = db.query(BMCredential).filter(BMCredential.is_active == True).all()  # noqa: E712
     notes = {n.account_id: n for n in db.query(AccountNote).all()}
-    data = result.get("data", [])
-    for acc in data:
-        note = notes.get(acc["id"])
-        acc["label"] = note.label if note else ""
-        acc["group"] = note.group if note else ""
-        acc["note"] = note.note if note else ""
-        # 金额单位由 FB 返回的是最小货币单位字符串，前端换算展示
-    return {"data": data}
+
+    all_data = []
+    errors = []
+
+    for cred in creds:
+        client = FBClient(cred.access_token)
+        try:
+            result = await client.list_ad_accounts()
+        except FBAPIError as e:
+            errors.append({"credential": cred.label, "error": str(e)})
+            continue
+
+        for acc in result.get("data", []):
+            acc["bm_label"] = cred.label
+            acc["credential_id"] = cred.id
+            note = notes.get(acc["id"])
+            acc["label"] = note.label if note else ""
+            acc["group"] = note.group if note else ""
+            acc["note"] = note.note if note else ""
+            all_data.append(acc)
+            _upsert_map(db, acc["id"], cred.id)
+
+    return {"data": all_data, "errors": errors}
 
 
 @router.get("/{account_id}")
-async def get_account(account_id: str):
-    client = FBClient()
+async def get_account(account_id: str, db: Session = Depends(get_db)):
+    client = await get_client_for_account(account_id, db)
     try:
         return await client.get_account(account_id)
     except FBAPIError as e:
@@ -43,7 +55,7 @@ class SpendCapIn(BaseModel):
 
 @router.post("/{account_id}/spend_cap")
 async def set_spend_cap(account_id: str, body: SpendCapIn, db: Session = Depends(get_db)):
-    client = FBClient()
+    client = await get_client_for_account(account_id, db)
     try:
         result = await client.update_spend_cap(account_id, body.spend_cap_cents)
         db.add(OperationLog(account_id=account_id, action="update_spend_cap",

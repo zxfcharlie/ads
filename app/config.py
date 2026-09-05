@@ -2,12 +2,13 @@ from pydantic_settings import BaseSettings
 
 
 class Settings(BaseSettings):
-    fb_app_id: str = ""
-    fb_app_secret: str = ""
-    fb_access_token: str = ""
     fb_api_version: str = "v20.0"
-    panel_password: str = "change_me"
     database_url: str = "sqlite:////app/data/panel.db"
+
+    # 面板登录（账号+密码，单管理员，够小团队自用；如需多人登录可再扩展成用户表）
+    admin_username: str = "admin"
+    admin_password: str = "change_me"
+    jwt_secret: str = "please_change_this_to_a_random_long_string"
 
     class Config:
         env_file = ".env"
