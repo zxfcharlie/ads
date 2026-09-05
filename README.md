@@ -4,10 +4,9 @@
 
 - 🔐 **账号密码登录**：JWT 会话，非公开的单一口令
 - 🏢 **多 Business Manager 管理**：一个「BM账号维护配置表」，可添加多个 BM 的系统用户令牌，系统自动按账户归属选用正确令牌发起操作
-- 📋 **账户总览**：聚合展示所有已配置 BM 下的广告账户，标注花费、余额、花费上限、所属 BM，可打备注
+- 📋 **账户总览**：聚合展示所有已配置 BM 下的广告账户，标注花费、花费上限、剩余可花费额度、所属 BM，可打备注
 - 🛠 **创建广告**：按 Campaign → AdSet → Creative → Ad 的顺序完整走完广告创建流程
-- 📈 **数据分析**：按日期区间 / 按广告系列查看花费、曝光、点击、CTR、CPC，并有图表
-- 💰 **额度管理**：查看并调整账户的花费上限（spend cap）
+- 📊 **广告管理**：先选 BM 再选广告账户，然后逐层下钻（系列 → 组 → 广告），字段对齐 Facebook 原生 Ads Manager（花费、购物、ROAS、CPM、视频播放等），支持改预算、暂停/启用、复制
 - 📝 操作日志会写入本地 SQLite（`data/panel.db`），便于审计
 
 > 这是一个可用的**脚手架 / 起点**，覆盖了 Marketing API 最核心的流程。生产环境请按需加固鉴权、审批流程、多用户权限等。
@@ -67,7 +66,7 @@ fb-ads-panel/
 │   └── routers/
 │       ├── accounts.py    # 账户列表、详情、花费上限
 │       ├── campaigns.py   # Campaign/AdSet/Creative/Ad 增删改
-│       └── insights.py    # 数据分析
+│       └── insights.py    # 原始数据洞察（当前 UI 未使用，仅供 API 直接调用）
 └── static/
     ├── index.html         # 看板页面
     ├── style.css
@@ -87,36 +86,37 @@ fb-ads-panel/
 | GET/POST | `/api/accounts/{id}/campaigns` | 广告系列 列表/创建 |
 | PATCH | `/api/accounts/{id}/campaigns/{campaign_id}` | 修改广告系列（名称/状态/预算） |
 | POST | `/api/accounts/{id}/campaigns/{campaign_id}/duplicate` | 复制广告系列（Facebook 原生深拷贝） |
+| GET | `/api/accounts/{id}/campaigns/overview` | 广告系列列表 + 聚合指标（花费/购物/ROAS/CPM/视频等，供「广告管理」页面用） |
 | GET/POST | `/api/accounts/{id}/adsets` | 广告组 列表/创建 |
 | PATCH | `/api/accounts/{id}/adsets/{adset_id}` | 修改广告组（名称/状态/预算/出价） |
 | POST | `/api/accounts/{id}/adsets/{adset_id}/duplicate` | 复制广告组（Facebook 原生深拷贝，可连同其下广告一起复制） |
+| GET | `/api/accounts/{id}/adsets/overview` | 广告组列表 + 聚合指标（需传 `campaign_id`） |
 | POST | `/api/accounts/{id}/images` | 上传素材图片（全程内存转发，不落盘） |
 | POST | `/api/accounts/{id}/creatives` | 创建广告创意 |
 | GET/POST | `/api/accounts/{id}/ads` | 广告 列表/创建 |
 | PATCH | `/api/accounts/{id}/ads/{ad_id}` | 修改广告（名称/状态） |
 | POST | `/api/accounts/{id}/ads/{ad_id}/duplicate` | 复制广告 |
+| GET | `/api/accounts/{id}/ads/overview` | 广告列表 + 聚合指标（需传 `adset_id`） |
 | POST | `/api/accounts/{id}/objects/{object_id}/status` | 通用启停接口（Campaign/AdSet/Ad 均可用） |
-| GET | `/api/accounts/{id}/insights` | 数据洞察（`date_preset`, `by_campaign`） |
+| GET | `/api/accounts/{id}/insights` | 按天/按系列的原始数据洞察（**当前 UI 未使用，仅供 API 直接调用**） |
+| POST | `/api/accounts/{id}/spend_cap` | 设置花费上限，传 0 = 清除上限（**当前 UI 未使用，仅供 API 直接调用**） |
 | GET/POST | `/api/credentials` | BM 凭证 列表/新增（新增时会先校验令牌有效性） |
 | PATCH/DELETE | `/api/credentials/{id}` | 更新（启停/改令牌）/删除某个 BM 凭证 |
 
 
 ---
 
-## 五、关于「余额」字段的重要说明
+## 五、关于「余额」与花费上限（当前仅通过 API 使用，UI 已下线）
 
-Facebook 原始 `balance` 字段的含义因账户资金模式而异：
-- 预付费账户：代表账户预存的余额
-- 信用额度账户：代表**当前待还款金额**（不是可用额度！）
+按你的要求，「数据分析」「额度管理」这两个独立标签页已经从界面里移除（相关接口 `/insights`、`/spend_cap` 仍保留在后端，未来要恢复 UI 或用脚本/第三方工具调用都可以）。
 
-这两种含义都**不等于**"距花费上限还能花多少"。因此面板改为额外计算一个真正有用的字段：
+「账户总览」页面仍然展示已花费、花费上限、剩余可花费额度三列，计算方式：
 
 ```
 剩余可花费额度 = 花费上限（spend_cap） − 已花费（amount_spent）
 ```
 
-「额度管理」页面同时展示这个计算值和 Facebook 原始 `balance`（仅供参考），避免混淆。
-更新花费上限失败时，面板会把 Facebook 返回的具体错误原因直接展示出来（常见原因：新上限低于已花费金额、令牌权限不足、账户资金模式不支持通过 API 改上限等）。
+Facebook 原始 `balance` 字段的含义因账户资金模式而异（预付费账户＝预存余额；信用额度账户＝**待还款金额**，不是可用额度），不等于"距上限还能花多少"，所以面板不再展示这个容易引起误解的原始字段。如需通过 API 调整花费上限，仍可以直接调用 `POST /api/accounts/{id}/spend_cap`（传 0 = 清除上限）。
 
 ---
 
@@ -128,19 +128,36 @@ Facebook 原始 `balance` 字段的含义因账户资金模式而异：
 
 ## 六.5、避免浏览器缓存旧的前端代码
 
-`static/index.html` 里引用 `app.js` / `style.css` 时带了版本号（如 `?v=3`）。**以后每次改完前端代码重新部署，记得把这个版本号数字改一下**（比如 v=3 → v=4），否则用户浏览器可能还在用缓存的旧版 JS/CSS，即使容器已经是最新代码，页面表现却像"没生效"。改完 `docker compose up -d --build` 之后，用户端再强制刷新（Ctrl+Shift+R）一次即可看到最新效果。
+`static/index.html` 里引用 `app.js` / `style.css` 时带了版本号（如 `?v=5`）。**以后每次改完前端代码重新部署，记得把这个版本号数字改一下**（比如 v=5 → v=6），否则用户浏览器可能还在用缓存的旧版 JS/CSS，即使容器已经是最新代码，页面表现却像"没生效"。改完 `docker compose up -d --build` 之后，用户端再强制刷新（Ctrl+Shift+R）一次即可看到最新效果。
 
-> 如果你前面还接了 Cloudflare：Cloudflare 默认也会在边缘节点缓存 `.js`/`.css` 这类静态资源。查询字符串（`?v=3`）通常会被计入缓存 key，正常情况下换版本号就能让 Cloudflare 重新回源拉取；如果怀疑 Cloudflare 那一层也缓存住了没刷新，去 Cloudflare 后台「Caching → Configuration → Purge Everything」手动清一次缓存。
+> 如果你前面还接了 Cloudflare：Cloudflare 默认也会在边缘节点缓存 `.js`/`.css` 这类静态资源。查询字符串（`?v=5`）通常会被计入缓存 key，正常情况下换版本号就能让 Cloudflare 重新回源拉取；如果怀疑 Cloudflare 那一层也缓存住了没刷新，去 Cloudflare 后台「Caching → Configuration → Purge Everything」手动清一次缓存。
 
 ---
 
-## 七、广告管理（对齐 Ads Manager 常用操作）
+## 七、广告管理（点名称逐层下钻，字段对齐 Ads Manager）
 
-「广告管理」标签页支持：选择账户 → 看该账户下所有 Campaign → 点进去看其 AdSet → 再点进去看其 Ad。每一级都可以：
+「广告管理」标签页的交互方式：
 
-- **暂停/启用**（一键切换状态）
-- **改预算**（Campaign/AdSet 级别的每日预算）
-- **复制**（调用 Facebook 原生的 `/copies` 深拷贝接口，AdSet/Campaign 复制时可选是否连同子对象一起复制，默认复制出来的状态是 PAUSED，避免误开花钱）
+1. 右上角先选 **BM**，再选该 BM 下的**广告账户**（两级联动，选完 BM 账户下拉框自动过滤）
+2. 默认看到的是**广告系列 Campaign** 列表
+3. **点系列名称** → 进入该系列下的**广告组 AdSet** 列表（面包屑显示"全部广告系列 › 系列名"，点面包屑可返回上一级）
+4. **点广告组名称** → 进入该组下的**广告 Ad** 列表
+
+表格字段对齐 Facebook 原生 Ads Manager 常用列：名称、状态、预算、已花费金额、购物次数、购物转化价值、广告花费回报(ROAS)-购物、单次购物成本、频次、展示次数、CPM、链接点击量、单次链接点击费用、链接点击率、加入购物车次数、结账发起次数、视频播放量、视频播放达50%/100%次数。列很多，表格区域可以左右滑动查看。
+
+**预算列的显示逻辑**（对应你的要求）：
+- 如果该广告系列本身有预算（即开启了 Campaign Budget Optimization / CBO），显示具体预算金额，旁边有一个 ✎ 图标，点击可直接改预算
+- 如果该广告系列没有自己的预算（预算在广告组层级，即 ABO），系列这一行显示"使用广告组预算"（纯文字，不可编辑），要改预算需要点进该系列，在广告组那一层的预算列里点 ✎ 修改
+- 广告（Ad）层级没有预算概念，该列固定显示"-"
+
+每一行都支持**暂停/启用**一键切换和**复制**（调用 Facebook 原生 `/copies` 深拷贝接口，复制出来的默认是 PAUSED，避免误开花钱；AdSet/Campaign 复制时会连同子对象一起复制）。
+
+**排序 / 筛选**（纯前端处理，当前这一层的数据已经在浏览器里，不用再打接口）：
+- 点任意列的表头即可按该列排序，再点一次切换升序/降序
+- 上方有一个按名称筛选的输入框和一个状态筛选下拉框（全部/仅ACTIVE/仅PAUSED），随打字即时生效
+- 切换 BM/账户，或者点名称往下钻/点面包屑往上返回时，筛选条件和排序会自动清空，避免"上一层筛的关键字"带到下一层去
+
+> **口径说明**：购物次数/购物转化价值/ROAS/加入购物车/结账发起这些指标，是按 Facebook 常见的 `omni_purchase`、`omni_add_to_cart` 等 action_type 从 Insights 接口解析出来的，实际数值可能因你的像素归因窗口设置等原因，与 Ads Manager 页面显示略有出入，仅供参考对齐，不代表官方最终结算口径。
 
 ---
 

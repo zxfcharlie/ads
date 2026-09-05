@@ -16,6 +16,72 @@ def _log(db: Session, account_id: str, action: str, detail: str, status: str = "
     db.commit()
 
 
+# ==================== 聚合视图：结构信息 + 指标数据拼在一起 ====================
+# 供「广告管理」页面使用：先列出对象结构（名称/状态/预算），
+# 再拉一次该层级的 insights 按 id 关联上花费/购物/ROAS/视频等指标。
+
+def _budget_fields(obj: dict) -> dict:
+    daily = obj.get("daily_budget")
+    lifetime = obj.get("lifetime_budget")
+    has_own_budget = bool(daily) or bool(lifetime)
+    return {
+        "has_own_budget": has_own_budget,
+        "budget_cents": int(daily or lifetime or 0),
+        "budget_type": "daily" if daily else ("lifetime" if lifetime else None),
+    }
+
+
+@router.get("/accounts/{account_id}/campaigns/overview")
+async def campaigns_overview(account_id: str, date_preset: str = "last_30d", db: Session = Depends(get_db)):
+    client = await get_client_for_account(account_id, db)
+    try:
+        campaigns_res = await client.list_campaigns(account_id)
+        metrics_map = await client.get_insights_by_level(account_id, "campaign", date_preset)
+    except FBAPIError as e:
+        raise HTTPException(status_code=e.status_code, detail=str(e))
+
+    rows = []
+    for c in campaigns_res.get("data", []):
+        rows.append({**c, **metrics_map.get(c["id"], {}), **_budget_fields(c)})
+    return {"data": rows}
+
+
+@router.get("/accounts/{account_id}/adsets/overview")
+async def adsets_overview(
+    account_id: str, campaign_id: str, date_preset: str = "last_30d", db: Session = Depends(get_db)
+):
+    client = await get_client_for_account(account_id, db)
+    try:
+        adsets_res = await client.list_adsets(account_id, campaign_id)
+        metrics_map = await client.get_insights_by_level(
+            account_id, "adset", date_preset, "campaign.id", campaign_id
+        )
+    except FBAPIError as e:
+        raise HTTPException(status_code=e.status_code, detail=str(e))
+
+    rows = []
+    for s in adsets_res.get("data", []):
+        rows.append({**s, **metrics_map.get(s["id"], {}), **_budget_fields(s)})
+    return {"data": rows}
+
+
+@router.get("/accounts/{account_id}/ads/overview")
+async def ads_overview(
+    account_id: str, adset_id: str, date_preset: str = "last_30d", db: Session = Depends(get_db)
+):
+    client = await get_client_for_account(account_id, db)
+    try:
+        ads_res = await client.list_ads(account_id, adset_id)
+        metrics_map = await client.get_insights_by_level(account_id, "ad", date_preset, "adset.id", adset_id)
+    except FBAPIError as e:
+        raise HTTPException(status_code=e.status_code, detail=str(e))
+
+    rows = []
+    for ad in ads_res.get("data", []):
+        rows.append({**ad, **metrics_map.get(ad["id"], {})})
+    return {"data": rows}
+
+
 # ---------------- Campaign ----------------
 @router.get("/accounts/{account_id}/campaigns")
 async def list_campaigns(account_id: str, db: Session = Depends(get_db)):

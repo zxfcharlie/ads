@@ -99,6 +99,42 @@ class FBClient:
 
         return await self._get(f"{account_id}/insights", params)
 
+    async def get_insights_by_level(
+        self,
+        account_id: str,
+        level: str,                        # "campaign" | "adset" | "ad"
+        date_preset: str = "last_30d",
+        parent_field: str | None = None,   # "campaign.id" 或 "adset.id"
+        parent_value: str | None = None,
+    ) -> dict:
+        """
+        拉取某一层级（campaign/adset/ad）在指定周期内的汇总指标，按对象 id 建索引，
+        方便与 list_campaigns/list_adsets/list_ads 的结构化数据（名称/状态/预算）拼接。
+        """
+        id_field = {"campaign": "campaign_id", "adset": "adset_id", "ad": "ad_id"}[level]
+        fields = (
+            "spend,impressions,clicks,ctr,cpc,cpm,frequency,"
+            "actions,action_values,purchase_roas,"
+            "video_play_actions,video_p50_watched_actions,video_p100_watched_actions,"
+            f"{id_field}"
+        )
+        params = {
+            "fields": fields,
+            "date_preset": date_preset,
+            "level": level,
+            "limit": 500,
+        }
+        if parent_field and parent_value:
+            params["filtering"] = f'[{{"field":"{parent_field}","operator":"EQUAL","value":"{parent_value}"}}]'
+
+        result = await self._get(f"{account_id}/insights", params)
+        by_id = {}
+        for row in result.get("data", []):
+            obj_id = row.get(id_field)
+            if obj_id:
+                by_id[obj_id] = _parse_metrics_row(row)
+        return by_id
+
     # ---------- 广告系列 / 广告组 / 广告 ----------
     async def list_campaigns(self, account_id: str):
         fields = "id,name,status,objective,daily_budget,lifetime_budget,created_time"
@@ -316,3 +352,79 @@ class FBClient:
 def _to_json(obj) -> str:
     import json
     return json.dumps(obj)
+
+
+# ---------- Facebook insights 里 actions/action_values/purchase_roas 都是
+# [{"action_type": "...", "value": "..."}] 这种数组结构，需要按 action_type 取值 ----------
+
+_PURCHASE_TYPES = ("omni_purchase", "offsite_conversion.fb_pixel_purchase", "purchase")
+_ATC_TYPES = ("omni_add_to_cart", "offsite_conversion.fb_pixel_add_to_cart", "add_to_cart")
+_CHECKOUT_TYPES = ("omni_initiated_checkout", "offsite_conversion.fb_pixel_initiate_checkout", "initiate_checkout")
+
+
+def _pick(rows: list | None, *action_types: str) -> float:
+    if not rows:
+        return 0.0
+    for row in rows:
+        if row.get("action_type") in action_types:
+            try:
+                return float(row.get("value", 0))
+            except (TypeError, ValueError):
+                return 0.0
+    return 0.0
+
+
+def _sum_all(rows: list | None) -> float:
+    if not rows:
+        return 0.0
+    total = 0.0
+    for row in rows:
+        try:
+            total += float(row.get("value", 0))
+        except (TypeError, ValueError):
+            continue
+    return total
+
+
+def _parse_metrics_row(row: dict) -> dict:
+    """
+    把 Facebook Insights 返回的一行原始数据，解析成前端表格直接可用的字段。
+    注意：这里的口径是常见/近似口径（例如购物用 omni_purchase 系列 action_type），
+    实际数值可能因归因窗口设置等原因与 Ads Manager 显示略有差异，仅供参考对齐。
+    """
+    actions = row.get("actions") or []
+    action_values = row.get("action_values") or []
+    purchase_roas = row.get("purchase_roas") or []
+
+    spend = float(row.get("spend") or 0)
+    impressions = int(float(row.get("impressions") or 0))
+    link_clicks = _pick(actions, "link_click")
+    purchases = _pick(actions, *_PURCHASE_TYPES)
+    purchase_value = _pick(action_values, *_PURCHASE_TYPES)
+    roas = _pick(purchase_roas, *_PURCHASE_TYPES)
+    atc = _pick(actions, *_ATC_TYPES)
+    checkout = _pick(actions, *_CHECKOUT_TYPES)
+
+    video_views = _sum_all(row.get("video_play_actions"))
+    video_p50 = _sum_all(row.get("video_p50_watched_actions"))
+    video_p100 = _sum_all(row.get("video_p100_watched_actions"))
+
+    return {
+        "spend": spend,
+        "impressions": impressions,
+        "clicks": int(float(row.get("clicks") or 0)),
+        "cpm": float(row.get("cpm") or 0),
+        "frequency": float(row.get("frequency") or 0),
+        "purchases": purchases,
+        "purchase_value": purchase_value,
+        "roas": roas if roas else None,
+        "cost_per_purchase": (spend / purchases) if purchases else None,
+        "link_clicks": link_clicks,
+        "cost_per_link_click": (spend / link_clicks) if link_clicks else None,
+        "link_ctr": (link_clicks / impressions * 100) if impressions else 0,
+        "atc": atc,
+        "checkout_initiated": checkout,
+        "video_views": video_views,
+        "video_p50": video_p50,
+        "video_p100": video_p100,
+    }

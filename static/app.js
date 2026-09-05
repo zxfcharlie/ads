@@ -1,6 +1,5 @@
 let TOKEN = localStorage.getItem("panel_token") || "";
 let ACCOUNTS = [];
-let chartInstance = null;
 
 // ---------------- 登录 ----------------
 async function doLogin() {
@@ -125,14 +124,11 @@ async function saveNote(accountId, note) {
 
 function fillAccountSelects() {
   const opts = ACCOUNTS.map((a) => `<option value="${a.id}">${a.name} (${a.id})</option>`).join("");
-  ["create-account-select", "insight-account-select", "budget-account-select"].forEach((id) => {
-    const el = document.getElementById(id);
-    if (el) el.innerHTML = opts;
-  });
+  const el = document.getElementById("create-account-select");
+  if (el) el.innerHTML = opts;
   fillManageBMSelect();
   if (ACCOUNTS.length) {
     onAccountChangeForCreate();
-    loadBudgetInfo();
   }
 }
 
@@ -280,133 +276,6 @@ async function createAd() {
   }
 }
 
-// ---------------- 数据分析 ----------------
-async function loadInsights() {
-  const accountId = document.getElementById("insight-account-select").value;
-  const preset = document.getElementById("insight-preset").value;
-  const byCampaign = document.getElementById("insight-by-campaign").checked;
-  if (!accountId) return;
-
-  try {
-    const res = await api(
-      `/api/accounts/${accountId}/insights?date_preset=${preset}&by_campaign=${byCampaign}`
-    );
-    const rows = res.data || [];
-    renderInsightStats(rows);
-    renderInsightChart(rows, byCampaign);
-    renderInsightTable(rows, byCampaign);
-  } catch (e) {
-    document.getElementById("insight-stats").innerHTML = `<div style="color:red">加载失败：${e.message}</div>`;
-  }
-}
-
-function sum(rows, field) {
-  return rows.reduce((acc, r) => acc + Number(r[field] || 0), 0);
-}
-
-function renderInsightStats(rows) {
-  const spend = sum(rows, "spend").toFixed(2);
-  const impressions = sum(rows, "impressions");
-  const clicks = sum(rows, "clicks");
-  const ctr = impressions ? ((clicks / impressions) * 100).toFixed(2) : "0.00";
-  const el = document.getElementById("insight-stats");
-  el.innerHTML = `
-    <div class="stat-card"><div class="num">$${spend}</div><div class="label">花费</div></div>
-    <div class="stat-card"><div class="num">${impressions}</div><div class="label">曝光</div></div>
-    <div class="stat-card"><div class="num">${clicks}</div><div class="label">点击</div></div>
-    <div class="stat-card"><div class="num">${ctr}%</div><div class="label">CTR</div></div>
-  `;
-}
-
-function renderInsightChart(rows, byCampaign) {
-  const ctx = document.getElementById("insight-chart");
-  const labels = byCampaign ? rows.map((r) => r.campaign_name || r.date_start) : rows.map((r) => r.date_start);
-  const spendData = rows.map((r) => Number(r.spend || 0));
-  if (chartInstance) chartInstance.destroy();
-  chartInstance = new Chart(ctx, {
-    type: "bar",
-    data: {
-      labels,
-      datasets: [{ label: "花费 ($)", data: spendData, backgroundColor: "#1877f2" }],
-    },
-    options: { responsive: true, plugins: { legend: { display: false } } },
-  });
-}
-
-function renderInsightTable(rows, byCampaign) {
-  const wrap = document.getElementById("insight-table-wrap");
-  if (!rows.length) {
-    wrap.innerHTML = "<tr><td>暂无数据</td></tr>";
-    return;
-  }
-  const head = byCampaign
-    ? "<tr><th>广告系列</th><th>花费</th><th>曝光</th><th>点击</th><th>CTR</th><th>CPC</th></tr>"
-    : "<tr><th>日期</th><th>花费</th><th>曝光</th><th>点击</th><th>CTR</th><th>CPC</th></tr>";
-  const body = rows
-    .map(
-      (r) => `<tr>
-        <td>${byCampaign ? r.campaign_name : r.date_start}</td>
-        <td>${Number(r.spend || 0).toFixed(2)}</td>
-        <td>${r.impressions || 0}</td>
-        <td>${r.clicks || 0}</td>
-        <td>${Number(r.ctr || 0).toFixed(2)}%</td>
-        <td>${Number(r.cpc || 0).toFixed(2)}</td>
-      </tr>`
-    )
-    .join("");
-  wrap.innerHTML = "<thead>" + head + "</thead><tbody>" + body + "</tbody>";
-}
-
-// ---------------- 额度管理 ----------------
-async function loadBudgetInfo() {
-  const accountId = document.getElementById("budget-account-select").value;
-  if (!accountId) return;
-  const box = document.getElementById("budget-info");
-  box.innerHTML = "加载中...";
-  try {
-    const a = await api(`/api/accounts/${accountId}`);
-    const remainingHtml = a.has_spend_cap
-      ? `<p><b>距上限还可花费：</b>${money(a.remaining_budget, a.currency)}　<span style="color:#888;font-size:12px">(= 花费上限 − 已花费)</span></p>`
-      : `<p><b>距上限还可花费：</b>未设置上限，不受限制</p>`;
-    box.innerHTML = `
-      <p><b>账户：</b>${a.name}</p>
-      <p><b>已花费：</b>${money(a.amount_spent, a.currency)}</p>
-      <p><b>当前花费上限：</b>${a.has_spend_cap ? money(a.spend_cap, a.currency) : "未设置"}</p>
-      ${remainingHtml}
-      <p style="color:#aaa;font-size:12px"><b>Facebook 原始 balance 字段（仅供参考，含义因账户资金模式而异，不等于"还能花多少"）：</b>${money(a.balance, a.currency)}</p>
-    `;
-  } catch (e) {
-    box.innerHTML = `<span style="color:red">加载失败：${e.message}</span>`;
-  }
-}
-
-async function setSpendCap() {
-  const accountId = document.getElementById("budget-account-select").value;
-  const cap = parseInt(document.getElementById("budget-new-cap").value, 10);
-  const box = document.getElementById("budget-result");
-  if (isNaN(cap) || cap < 0) return (box.innerText = "请输入有效数字");
-  try {
-    await apiJSON(`/api/accounts/${accountId}/spend_cap`, { spend_cap_cents: cap });
-    box.innerText = "更新成功";
-    loadBudgetInfo();
-  } catch (e) {
-    box.innerText = "更新失败：" + e.message;
-  }
-}
-
-async function clearSpendCap() {
-  const accountId = document.getElementById("budget-account-select").value;
-  const box = document.getElementById("budget-result");
-  if (!confirm("确定要清除花费上限（变为不限制）吗？")) return;
-  try {
-    await apiJSON(`/api/accounts/${accountId}/spend_cap`, { spend_cap_cents: 0 });
-    box.innerText = "已清除上限";
-    loadBudgetInfo();
-  } catch (e) {
-    box.innerText = "操作失败：" + e.message;
-  }
-}
-
 // ---------------- BM 账号管理 ----------------
 async function loadCredentials() {
   const tbody = document.getElementById("bm-tbody");
@@ -479,8 +348,301 @@ async function deleteCredential(id) {
   }
 }
 
-// ---------------- 广告管理（类似 Ads Manager：改预算/暂停启用/复制）----------------
-const MANAGE = { accountId: null, campaignId: null, adsetId: null };
+
+// ---------------- 广告管理（点名称逐层下钻：系列 → 组 → 广告，字段对齐 Ads Manager）----------------
+const MANAGE = {
+  accountId: null,
+  level: "campaigns", // "campaigns" | "adsets" | "ads"
+  campaignId: null,
+  campaignName: "",
+  adsetId: null,
+  adsetName: "",
+  rawRows: [],
+  sortKey: null,
+  sortDir: 1, // 1 = 升序, -1 = 降序
+};
+
+const MANAGE_COLUMNS = [
+  { key: "name", label: "名称" },
+  { key: "status", label: "状态" },
+  { key: "budget_cents", label: "预算" },
+  { key: "spend", label: "已花费金额" },
+  { key: "purchases", label: "购物次数" },
+  { key: "purchase_value", label: "购物转化价值" },
+  { key: "roas", label: "广告花费回报(ROAS)-购物" },
+  { key: "cost_per_purchase", label: "单次购物成本" },
+  { key: "frequency", label: "频次" },
+  { key: "impressions", label: "展示次数" },
+  { key: "cpm", label: "CPM" },
+  { key: "link_clicks", label: "链接点击量" },
+  { key: "cost_per_link_click", label: "单次链接点击费用" },
+  { key: "link_ctr", label: "链接点击率" },
+  { key: "atc", label: "加入购物车次数" },
+  { key: "checkout_initiated", label: "结账发起次数" },
+  { key: "video_views", label: "视频播放量" },
+  { key: "video_p50", label: "视频播放达50%次数" },
+  { key: "video_p100", label: "视频播放达100%次数" },
+  { key: null, label: "操作" },
+];
+
+function fmtNum(v, digits = 0) {
+  if (v === null || v === undefined || v === "" || isNaN(v)) return "-";
+  return Number(v).toLocaleString(undefined, { maximumFractionDigits: digits, minimumFractionDigits: digits });
+}
+function fmtMoney(v) {
+  if (v === null || v === undefined || isNaN(v)) return "-";
+  return "$" + Number(v).toFixed(2);
+}
+function fmtPct(v) {
+  if (v === null || v === undefined || isNaN(v)) return "-";
+  return Number(v).toFixed(2) + "%";
+}
+function fmtRoas(v) {
+  if (v === null || v === undefined) return "-";
+  return Number(v).toFixed(2);
+}
+
+function escapeHtml(s) {
+  return (s || "").replace(/\\/g, "\\\\").replace(/'/g, "\\'");
+}
+
+function renderManageHeader() {
+  document.getElementById("manage-thead").innerHTML =
+    "<tr>" +
+    MANAGE_COLUMNS.map((c) => {
+      if (!c.key) return `<th>${c.label}</th>`;
+      const arrow = MANAGE.sortKey === c.key ? (MANAGE.sortDir === 1 ? " ▲" : " ▼") : "";
+      return `<th style="cursor:pointer;user-select:none;white-space:nowrap" onclick="sortManageBy('${c.key}')" title="点击排序">${c.label}${arrow}</th>`;
+    }).join("") +
+    "</tr>";
+}
+
+function sortManageBy(key) {
+  if (MANAGE.sortKey === key) {
+    MANAGE.sortDir *= -1;
+  } else {
+    MANAGE.sortKey = key;
+    MANAGE.sortDir = 1;
+  }
+  applyManageFilterSort();
+}
+
+function getSortValue(row, key) {
+  if (key === "name" || key === "status") {
+    return (row[key] || "").toString().toLowerCase();
+  }
+  if (key === "budget_cents") {
+    // 没有自己预算的（使用上级预算）排到最后，不参与数值比较
+    return row.has_own_budget ? Number(row.budget_cents || 0) : -1;
+  }
+  const v = row[key];
+  return v === null || v === undefined || v === "" ? -Infinity : Number(v);
+}
+
+function resetManageFilterSort() {
+  document.getElementById("manage-filter-text").value = "";
+  document.getElementById("manage-filter-status").value = "ALL";
+  MANAGE.sortKey = null;
+  MANAGE.sortDir = 1;
+  applyManageFilterSort();
+}
+
+function applyManageFilterSort() {
+  const text = (document.getElementById("manage-filter-text").value || "").trim().toLowerCase();
+  const status = document.getElementById("manage-filter-status").value;
+
+  let rows = MANAGE.rawRows.filter((r) => {
+    const matchesText = !text || (r.name || "").toLowerCase().includes(text);
+    const matchesStatus = status === "ALL" || r.status === status;
+    return matchesText && matchesStatus;
+  });
+
+  if (MANAGE.sortKey) {
+    const key = MANAGE.sortKey;
+    const dir = MANAGE.sortDir;
+    rows = rows.slice().sort((a, b) => {
+      const va = getSortValue(a, key);
+      const vb = getSortValue(b, key);
+      if (typeof va === "string" || typeof vb === "string") {
+        return dir * String(va).localeCompare(String(vb));
+      }
+      return dir * (va - vb);
+    });
+  }
+
+  renderManageHeader();
+  renderManageRows(rows);
+}
+
+function renderBreadcrumb() {
+  const parts = [];
+  parts.push(
+    MANAGE.level === "campaigns" ? `<b>全部广告系列</b>` : `<a href="#" onclick="goToCampaigns(); return false;">全部广告系列</a>`
+  );
+  if (MANAGE.level === "adsets" || MANAGE.level === "ads") {
+    parts.push(
+      MANAGE.level === "adsets"
+        ? `<b>${MANAGE.campaignName}</b>`
+        : `<a href="#" onclick="goToAdsets(); return false;">${MANAGE.campaignName}</a>`
+    );
+  }
+  if (MANAGE.level === "ads") {
+    parts.push(`<b>${MANAGE.adsetName}</b>`);
+  }
+  document.getElementById("manage-breadcrumb").innerHTML = parts.join(" &nbsp;›&nbsp; ");
+}
+
+function clearManageFilterInputsOnly() {
+  // 切换层级/账户时清空筛选条件和排序状态，但不触发额外的渲染（loadManageTable 会统一渲染）
+  const textEl = document.getElementById("manage-filter-text");
+  const statusEl = document.getElementById("manage-filter-status");
+  if (textEl) textEl.value = "";
+  if (statusEl) statusEl.value = "ALL";
+  MANAGE.sortKey = null;
+  MANAGE.sortDir = 1;
+}
+
+async function onAccountChangeForManage() {
+  MANAGE.accountId = document.getElementById("manage-account-select").value;
+  goToCampaigns();
+}
+
+function goToCampaigns() {
+  MANAGE.level = "campaigns";
+  MANAGE.campaignId = null;
+  MANAGE.adsetId = null;
+  clearManageFilterInputsOnly();
+  loadManageTable();
+}
+
+function goToAdsets() {
+  MANAGE.level = "adsets";
+  MANAGE.adsetId = null;
+  clearManageFilterInputsOnly();
+  loadManageTable();
+}
+
+function drillIntoCampaign(id, name) {
+  MANAGE.level = "adsets";
+  MANAGE.campaignId = id;
+  MANAGE.campaignName = name;
+  clearManageFilterInputsOnly();
+  loadManageTable();
+}
+
+function drillIntoAdset(id, name) {
+  MANAGE.level = "ads";
+  MANAGE.adsetId = id;
+  MANAGE.adsetName = name;
+  clearManageFilterInputsOnly();
+  loadManageTable();
+}
+
+async function loadManageTable() {
+  renderManageHeader();
+  renderBreadcrumb();
+  const tbody = document.getElementById("manage-tbody");
+  const colCount = MANAGE_COLUMNS.length;
+
+  if (!MANAGE.accountId) {
+    tbody.innerHTML = `<tr><td colspan="${colCount}">请先选择 BM 和广告账户</td></tr>`;
+    return;
+  }
+  tbody.innerHTML = `<tr><td colspan="${colCount}">加载中...</td></tr>`;
+  const datePreset = document.getElementById("manage-date-preset").value;
+
+  try {
+    let rows = [];
+    if (MANAGE.level === "campaigns") {
+      const res = await api(`/api/accounts/${MANAGE.accountId}/campaigns/overview?date_preset=${datePreset}`);
+      rows = res.data || [];
+    } else if (MANAGE.level === "adsets") {
+      const res = await api(
+        `/api/accounts/${MANAGE.accountId}/adsets/overview?campaign_id=${MANAGE.campaignId}&date_preset=${datePreset}`
+      );
+      rows = res.data || [];
+    } else {
+      const res = await api(
+        `/api/accounts/${MANAGE.accountId}/ads/overview?adset_id=${MANAGE.adsetId}&date_preset=${datePreset}`
+      );
+      rows = res.data || [];
+    }
+    MANAGE.rawRows = rows;
+    applyManageFilterSort();
+  } catch (e) {
+    tbody.innerHTML = `<tr><td colspan="${colCount}" style="color:red">加载失败：${e.message}</td></tr>`;
+  }
+}
+
+function renderManageRows(rows) {
+  const tbody = document.getElementById("manage-tbody");
+  const colCount = MANAGE_COLUMNS.length;
+  if (!rows.length) {
+    tbody.innerHTML = `<tr><td colspan="${colCount}">暂无数据</td></tr>`;
+    return;
+  }
+  const kind = MANAGE.level; // "campaigns" | "adsets" | "ads"，与接口路径一致
+
+  tbody.innerHTML = rows
+    .map((r) => {
+      const nameCell =
+        kind === "ads"
+          ? r.name
+          : `<a href="#" onclick="${
+              kind === "campaigns"
+                ? `drillIntoCampaign('${r.id}', '${escapeHtml(r.name)}')`
+                : `drillIntoAdset('${r.id}', '${escapeHtml(r.name)}')`
+            }; return false;">${r.name}</a>`;
+
+      let budgetCell = "-";
+      if (kind !== "ads") {
+        if (r.has_own_budget) {
+          budgetCell = `${fmtMoney(r.budget_cents / 100)}${r.budget_type === "lifetime" ? "(总)" : ""} <a href="#" onclick="editBudget('${kind}','${r.id}', ${r.budget_cents}); return false;" title="修改预算">✎</a>`;
+        } else {
+          budgetCell = `<span style="color:#888">使用${kind === "campaigns" ? "广告组" : "广告系列"}预算</span>`;
+        }
+      }
+
+      const toggleLabel = r.status === "ACTIVE" ? "暂停" : "启用";
+      const actionsCell = `
+        <button onclick="toggleManageStatus('${kind}','${r.id}','${r.status}')">${toggleLabel}</button>
+        <button onclick="doDuplicate('${kind}','${r.id}')">复制</button>
+      `;
+
+      return `<tr>
+        <td>${nameCell}</td>
+        <td>${statusBadge(r.status)}</td>
+        <td>${budgetCell}</td>
+        <td>${fmtMoney(r.spend)}</td>
+        <td>${fmtNum(r.purchases)}</td>
+        <td>${fmtMoney(r.purchase_value)}</td>
+        <td>${fmtRoas(r.roas)}</td>
+        <td>${fmtMoney(r.cost_per_purchase)}</td>
+        <td>${fmtNum(r.frequency, 2)}</td>
+        <td>${fmtNum(r.impressions)}</td>
+        <td>${fmtMoney(r.cpm)}</td>
+        <td>${fmtNum(r.link_clicks)}</td>
+        <td>${fmtMoney(r.cost_per_link_click)}</td>
+        <td>${fmtPct(r.link_ctr)}</td>
+        <td>${fmtNum(r.atc)}</td>
+        <td>${fmtNum(r.checkout_initiated)}</td>
+        <td>${fmtNum(r.video_views)}</td>
+        <td>${fmtNum(r.video_p50)}</td>
+        <td>${fmtNum(r.video_p100)}</td>
+        <td>${actionsCell}</td>
+      </tr>`;
+    })
+    .join("");
+}
+
+function reportManage(msg) {
+  document.getElementById("manage-result").innerText = msg;
+}
+
+function statusBadge(status) {
+  const active = status === "ACTIVE";
+  return `<span style="color:${active ? "#1a7f37" : "#888"}">${status}</span>`;
+}
 
 async function patchObject(kind, accountId, id, body) {
   return api(`/api/accounts/${accountId}/${kind}/${id}`, {
@@ -498,191 +660,28 @@ async function duplicateObject(kind, accountId, id) {
   });
 }
 
-function statusBadge(status) {
-  const active = status === "ACTIVE";
-  return `<span style="color:${active ? "#1a7f37" : "#888"}">${status}</span>`;
-}
-
-async function onAccountChangeForManage() {
-  const accountId = document.getElementById("manage-account-select").value;
-  MANAGE.accountId = accountId;
-  MANAGE.campaignId = null;
-  MANAGE.adsetId = null;
-  document.getElementById("manage-adsets-tbody").innerHTML = "";
-  document.getElementById("manage-ads-tbody").innerHTML = "";
-  document.getElementById("manage-current-campaign-name").innerText = "请先选择上方广告系列";
-  document.getElementById("manage-current-adset-name").innerText = "请先选择上方广告组";
-  if (!accountId) return;
-  await loadManageCampaigns();
-}
-
-async function loadManageCampaigns() {
-  const tbody = document.getElementById("manage-campaigns-tbody");
-  tbody.innerHTML = "<tr><td colspan='4'>加载中...</td></tr>";
-  try {
-    const res = await api(`/api/accounts/${MANAGE.accountId}/campaigns`);
-    const rows = res.data || [];
-    tbody.innerHTML = "";
-    rows.forEach((c) => {
-      const tr = document.createElement("tr");
-      const budget = c.daily_budget ? money(c.daily_budget, "") : (c.lifetime_budget ? money(c.lifetime_budget, "") + "(总)" : "-");
-      tr.innerHTML = `
-        <td><a href="#" onclick="selectCampaignForManage('${c.id}', '${escapeHtml(c.name)}'); return false;">${c.name}</a></td>
-        <td>${statusBadge(c.status)}</td>
-        <td>${budget}</td>
-        <td>
-          <button onclick="toggleCampaignStatus('${c.id}', '${c.status}')">${c.status === "ACTIVE" ? "暂停" : "启用"}</button>
-          <button onclick="editCampaignBudget('${c.id}', '${c.daily_budget || ""}')">改预算</button>
-          <button onclick="doDuplicate('campaigns', '${c.id}')">复制</button>
-        </td>
-      `;
-      tbody.appendChild(tr);
-    });
-  } catch (e) {
-    tbody.innerHTML = `<tr><td colspan='4' style="color:red">加载失败：${e.message}</td></tr>`;
-  }
-}
-
-function escapeHtml(s) {
-  return (s || "").replace(/'/g, "\\'").replace(/"/g, "&quot;");
-}
-
-async function selectCampaignForManage(campaignId, name) {
-  MANAGE.campaignId = campaignId;
-  MANAGE.adsetId = null;
-  document.getElementById("manage-current-campaign-name").innerText = name;
-  document.getElementById("manage-current-adset-name").innerText = "请先选择上方广告组";
-  document.getElementById("manage-ads-tbody").innerHTML = "";
-  await loadManageAdsets();
-}
-
-async function loadManageAdsets() {
-  const tbody = document.getElementById("manage-adsets-tbody");
-  tbody.innerHTML = "<tr><td colspan='4'>加载中...</td></tr>";
-  try {
-    const res = await api(`/api/accounts/${MANAGE.accountId}/adsets?campaign_id=${MANAGE.campaignId}`);
-    const rows = res.data || [];
-    tbody.innerHTML = "";
-    if (!rows.length) {
-      tbody.innerHTML = "<tr><td colspan='4'>该广告系列下暂无广告组</td></tr>";
-      return;
-    }
-    rows.forEach((s) => {
-      const tr = document.createElement("tr");
-      const budget = s.daily_budget ? money(s.daily_budget, "") : (s.lifetime_budget ? money(s.lifetime_budget, "") + "(总)" : "-");
-      tr.innerHTML = `
-        <td><a href="#" onclick="selectAdsetForManage('${s.id}', '${escapeHtml(s.name)}'); return false;">${s.name}</a></td>
-        <td>${statusBadge(s.status)}</td>
-        <td>${budget}</td>
-        <td>
-          <button onclick="toggleAdsetStatus('${s.id}', '${s.status}')">${s.status === "ACTIVE" ? "暂停" : "启用"}</button>
-          <button onclick="editAdsetBudget('${s.id}', '${s.daily_budget || ""}')">改预算</button>
-          <button onclick="doDuplicate('adsets', '${s.id}')">复制</button>
-        </td>
-      `;
-      tbody.appendChild(tr);
-    });
-  } catch (e) {
-    tbody.innerHTML = `<tr><td colspan='4' style="color:red">加载失败：${e.message}</td></tr>`;
-  }
-}
-
-async function selectAdsetForManage(adsetId, name) {
-  MANAGE.adsetId = adsetId;
-  document.getElementById("manage-current-adset-name").innerText = name;
-  await loadManageAds();
-}
-
-async function loadManageAds() {
-  const tbody = document.getElementById("manage-ads-tbody");
-  tbody.innerHTML = "<tr><td colspan='3'>加载中...</td></tr>";
-  try {
-    const res = await api(`/api/accounts/${MANAGE.accountId}/ads?adset_id=${MANAGE.adsetId}`);
-    const rows = res.data || [];
-    tbody.innerHTML = "";
-    if (!rows.length) {
-      tbody.innerHTML = "<tr><td colspan='3'>该广告组下暂无广告</td></tr>";
-      return;
-    }
-    rows.forEach((ad) => {
-      const tr = document.createElement("tr");
-      tr.innerHTML = `
-        <td>${ad.name}</td>
-        <td>${statusBadge(ad.status)}</td>
-        <td>
-          <button onclick="toggleAdStatus('${ad.id}', '${ad.status}')">${ad.status === "ACTIVE" ? "暂停" : "启用"}</button>
-          <button onclick="doDuplicate('ads', '${ad.id}')">复制</button>
-        </td>
-      `;
-      tbody.appendChild(tr);
-    });
-  } catch (e) {
-    tbody.innerHTML = `<tr><td colspan='3' style="color:red">加载失败：${e.message}</td></tr>`;
-  }
-}
-
-function reportManage(msg) {
-  document.getElementById("manage-result").innerText = msg;
-}
-
-async function toggleCampaignStatus(id, currentStatus) {
+async function toggleManageStatus(kind, id, currentStatus) {
   const next = currentStatus === "ACTIVE" ? "PAUSED" : "ACTIVE";
   try {
-    await patchObject("campaigns", MANAGE.accountId, id, { status: next });
-    reportManage(`已将广告系列切换为 ${next}`);
-    loadManageCampaigns();
+    await patchObject(kind, MANAGE.accountId, id, { status: next });
+    reportManage(`已切换为 ${next}`);
+    loadManageTable();
   } catch (e) {
     reportManage("操作失败：" + e.message);
   }
 }
 
-async function editCampaignBudget(id, currentBudgetCents) {
-  const input = prompt("输入新的每日预算（最小货币单位，如 1000 = $10.00）：", currentBudgetCents || "");
+async function editBudget(kind, id, currentBudgetCents) {
+  const input = prompt("输入新的预算金额（最小货币单位，如 1000 = $10.00）：", currentBudgetCents || "");
   if (input === null || input === "") return;
   const cents = parseInt(input, 10);
   if (isNaN(cents)) return alert("请输入有效数字");
   try {
-    await patchObject("campaigns", MANAGE.accountId, id, { daily_budget_cents: cents });
+    await patchObject(kind, MANAGE.accountId, id, { daily_budget_cents: cents });
     reportManage("预算更新成功");
-    loadManageCampaigns();
+    loadManageTable();
   } catch (e) {
     reportManage("更新失败：" + e.message);
-  }
-}
-
-async function toggleAdsetStatus(id, currentStatus) {
-  const next = currentStatus === "ACTIVE" ? "PAUSED" : "ACTIVE";
-  try {
-    await patchObject("adsets", MANAGE.accountId, id, { status: next });
-    reportManage(`已将广告组切换为 ${next}`);
-    loadManageAdsets();
-  } catch (e) {
-    reportManage("操作失败：" + e.message);
-  }
-}
-
-async function editAdsetBudget(id, currentBudgetCents) {
-  const input = prompt("输入新的每日预算（最小货币单位，如 1000 = $10.00）：", currentBudgetCents || "");
-  if (input === null || input === "") return;
-  const cents = parseInt(input, 10);
-  if (isNaN(cents)) return alert("请输入有效数字");
-  try {
-    await patchObject("adsets", MANAGE.accountId, id, { daily_budget_cents: cents });
-    reportManage("预算更新成功");
-    loadManageAdsets();
-  } catch (e) {
-    reportManage("更新失败：" + e.message);
-  }
-}
-
-async function toggleAdStatus(id, currentStatus) {
-  const next = currentStatus === "ACTIVE" ? "PAUSED" : "ACTIVE";
-  try {
-    await patchObject("ads", MANAGE.accountId, id, { status: next });
-    reportManage(`已将广告切换为 ${next}`);
-    loadManageAds();
-  } catch (e) {
-    reportManage("操作失败：" + e.message);
   }
 }
 
@@ -691,9 +690,7 @@ async function doDuplicate(kind, id) {
   try {
     const result = await duplicateObject(kind, MANAGE.accountId, id);
     reportManage("复制成功，新对象 ID：" + JSON.stringify(result));
-    if (kind === "campaigns") loadManageCampaigns();
-    if (kind === "adsets") loadManageAdsets();
-    if (kind === "ads") loadManageAds();
+    loadManageTable();
   } catch (e) {
     reportManage("复制失败：" + e.message);
   }
