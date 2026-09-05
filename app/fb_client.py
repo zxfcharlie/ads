@@ -54,6 +54,10 @@ class FBClient:
         return await self._get("me/adaccounts", {"fields": fields, "limit": 200})
 
     async def get_account(self, account_id: str):
+        # 注意：Facebook 原始 balance 字段含义因账户资金模式而异
+        # （预付费账户=预存余额；信用额度账户=待还款金额），
+        # 不等同于"距花费上限还能花多少"，这里原样返回，
+        # 由上层路由结合 spend_cap - amount_spent 计算出真正有用的"剩余可花费额度"。
         fields = (
             "id,name,account_status,currency,amount_spent,balance,"
             "spend_cap,funding_source_details"
@@ -61,7 +65,7 @@ class FBClient:
         return await self._get(f"{account_id}", {"fields": fields})
 
     async def update_spend_cap(self, account_id: str, spend_cap_cents: int):
-        """spend_cap 单位为最小货币单位（如美分）"""
+        """spend_cap 单位为最小货币单位（如美分）。传 0 表示清除上限（不限制）。"""
         return await self._post(f"{account_id}", {"spend_cap": spend_cap_cents})
 
     # ---------- 数据洞察 ----------
@@ -198,7 +202,94 @@ class FBClient:
         """通用：暂停/启用 campaign / adset / ad"""
         return await self._post(f"{object_id}", {"status": status})
 
+    # ---------- 修改（预算/名称）----------
+    async def update_campaign(
+        self,
+        campaign_id: str,
+        name: str | None = None,
+        status: str | None = None,
+        daily_budget_cents: int | None = None,
+        lifetime_budget_cents: int | None = None,
+    ):
+        data = {}
+        if name is not None:
+            data["name"] = name
+        if status is not None:
+            data["status"] = status
+        if daily_budget_cents is not None:
+            data["daily_budget"] = daily_budget_cents
+        if lifetime_budget_cents is not None:
+            data["lifetime_budget"] = lifetime_budget_cents
+        if not data:
+            raise ValueError("没有任何要更新的字段")
+        return await self._post(f"{campaign_id}", data)
+
+    async def update_adset(
+        self,
+        adset_id: str,
+        name: str | None = None,
+        status: str | None = None,
+        daily_budget_cents: int | None = None,
+        lifetime_budget_cents: int | None = None,
+        bid_amount_cents: int | None = None,
+    ):
+        data = {}
+        if name is not None:
+            data["name"] = name
+        if status is not None:
+            data["status"] = status
+        if daily_budget_cents is not None:
+            data["daily_budget"] = daily_budget_cents
+        if lifetime_budget_cents is not None:
+            data["lifetime_budget"] = lifetime_budget_cents
+        if bid_amount_cents is not None:
+            data["bid_amount"] = bid_amount_cents
+        if not data:
+            raise ValueError("没有任何要更新的字段")
+        return await self._post(f"{adset_id}", data)
+
+    async def update_ad(self, ad_id: str, name: str | None = None, status: str | None = None):
+        data = {}
+        if name is not None:
+            data["name"] = name
+        if status is not None:
+            data["status"] = status
+        if not data:
+            raise ValueError("没有任何要更新的字段")
+        return await self._post(f"{ad_id}", data)
+
+    # ---------- 复制（用 Facebook 原生 /copies 深拷贝接口）----------
+    async def copy_campaign(
+        self, campaign_id: str, deep_copy: bool = True,
+        status_option: str = "PAUSED", rename_suffix: str | None = None,
+    ):
+        data = {"deep_copy": str(deep_copy).lower(), "status_option": status_option}
+        if rename_suffix:
+            data["rename_options"] = _to_json({
+                "rename_strategy": "ONLY_TOP_LEVEL_RESOURCE_NAMES",
+                "rename_suffix": rename_suffix,
+            })
+        return await self._post(f"{campaign_id}/copies", data)
+
+    async def copy_adset(
+        self, adset_id: str, deep_copy: bool = True,
+        status_option: str = "PAUSED", rename_suffix: str | None = None,
+    ):
+        data = {"deep_copy": str(deep_copy).lower(), "status_option": status_option}
+        if rename_suffix:
+            data["rename_options"] = _to_json({
+                "rename_strategy": "ONLY_TOP_LEVEL_RESOURCE_NAMES",
+                "rename_suffix": rename_suffix,
+            })
+        return await self._post(f"{adset_id}/copies", data)
+
+    async def copy_ad(self, ad_id: str, status_option: str = "PAUSED"):
+        data = {"status_option": status_option}
+        return await self._post(f"{ad_id}/copies", data)
+
     async def upload_image(self, account_id: str, image_bytes: bytes, filename: str):
+        # 注意：图片内容全程只在内存中经手，直接转发给 Facebook 的 /adimages 接口，
+        # 本服务不会把图片写入磁盘、也不落库保存，请求结束后即从内存中释放，不占用服务器存储。
         async with httpx.AsyncClient(timeout=60) as client:
             files = {"filename": (filename, image_bytes)}
             r = await client.post(

@@ -130,8 +130,10 @@ async def create_creative(account_id: str, body: CreativeIn, db: Session = Depen
 
 @router.post("/accounts/{account_id}/images")
 async def upload_image(account_id: str, file: UploadFile = File(...), db: Session = Depends(get_db)):
+    """图片全程只经过内存，直接转发给 Facebook，本服务不写入磁盘、不落库保存"""
     client = await get_client_for_account(account_id, db)
     content = await file.read()
+    await file.close()
     try:
         return await client.upload_image(account_id, content, file.filename)
     except FBAPIError as e:
@@ -182,4 +184,115 @@ async def update_status(account_id: str, object_id: str, body: StatusIn, db: Ses
         return result
     except FBAPIError as e:
         _log(db, account_id, "update_status", str(e), "failed")
+        raise HTTPException(status_code=e.status_code, detail=str(e))
+
+
+# ==================== 修改预算/名称 & 复制（对齐 Ads Manager 常用操作）====================
+
+class CampaignUpdateIn(BaseModel):
+    name: Optional[str] = None
+    status: Optional[str] = None
+    daily_budget_cents: Optional[int] = None
+    lifetime_budget_cents: Optional[int] = None
+
+
+@router.patch("/accounts/{account_id}/campaigns/{campaign_id}")
+async def update_campaign(account_id: str, campaign_id: str, body: CampaignUpdateIn, db: Session = Depends(get_db)):
+    client = await get_client_for_account(account_id, db)
+    try:
+        result = await client.update_campaign(
+            campaign_id, body.name, body.status, body.daily_budget_cents, body.lifetime_budget_cents
+        )
+        _log(db, account_id, "update_campaign", f"{campaign_id}:{body.model_dump(exclude_none=True)}")
+        return result
+    except FBAPIError as e:
+        _log(db, account_id, "update_campaign", str(e), "failed")
+        raise HTTPException(status_code=e.status_code, detail=str(e))
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+class CopyIn(BaseModel):
+    deep_copy: bool = True          # 是否把子对象（AdSet 下的 Ad）也一并复制
+    status_option: str = "PAUSED"   # PAUSED / ACTIVE / INHERITED_FROM_SOURCE
+    rename_suffix: Optional[str] = " - 副本"
+
+
+@router.post("/accounts/{account_id}/campaigns/{campaign_id}/duplicate")
+async def duplicate_campaign(account_id: str, campaign_id: str, body: CopyIn, db: Session = Depends(get_db)):
+    client = await get_client_for_account(account_id, db)
+    try:
+        result = await client.copy_campaign(campaign_id, body.deep_copy, body.status_option, body.rename_suffix)
+        _log(db, account_id, "duplicate_campaign", f"{campaign_id}->{result}")
+        return result
+    except FBAPIError as e:
+        _log(db, account_id, "duplicate_campaign", str(e), "failed")
+        raise HTTPException(status_code=e.status_code, detail=str(e))
+
+
+class AdSetUpdateIn(BaseModel):
+    name: Optional[str] = None
+    status: Optional[str] = None
+    daily_budget_cents: Optional[int] = None
+    lifetime_budget_cents: Optional[int] = None
+    bid_amount_cents: Optional[int] = None
+
+
+@router.patch("/accounts/{account_id}/adsets/{adset_id}")
+async def update_adset_endpoint(account_id: str, adset_id: str, body: AdSetUpdateIn, db: Session = Depends(get_db)):
+    client = await get_client_for_account(account_id, db)
+    try:
+        result = await client.update_adset(
+            adset_id, body.name, body.status, body.daily_budget_cents,
+            body.lifetime_budget_cents, body.bid_amount_cents,
+        )
+        _log(db, account_id, "update_adset", f"{adset_id}:{body.model_dump(exclude_none=True)}")
+        return result
+    except FBAPIError as e:
+        _log(db, account_id, "update_adset", str(e), "failed")
+        raise HTTPException(status_code=e.status_code, detail=str(e))
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+@router.post("/accounts/{account_id}/adsets/{adset_id}/duplicate")
+async def duplicate_adset(account_id: str, adset_id: str, body: CopyIn, db: Session = Depends(get_db)):
+    client = await get_client_for_account(account_id, db)
+    try:
+        result = await client.copy_adset(adset_id, body.deep_copy, body.status_option, body.rename_suffix)
+        _log(db, account_id, "duplicate_adset", f"{adset_id}->{result}")
+        return result
+    except FBAPIError as e:
+        _log(db, account_id, "duplicate_adset", str(e), "failed")
+        raise HTTPException(status_code=e.status_code, detail=str(e))
+
+
+class AdUpdateIn(BaseModel):
+    name: Optional[str] = None
+    status: Optional[str] = None
+
+
+@router.patch("/accounts/{account_id}/ads/{ad_id}")
+async def update_ad_endpoint(account_id: str, ad_id: str, body: AdUpdateIn, db: Session = Depends(get_db)):
+    client = await get_client_for_account(account_id, db)
+    try:
+        result = await client.update_ad(ad_id, body.name, body.status)
+        _log(db, account_id, "update_ad", f"{ad_id}:{body.model_dump(exclude_none=True)}")
+        return result
+    except FBAPIError as e:
+        _log(db, account_id, "update_ad", str(e), "failed")
+        raise HTTPException(status_code=e.status_code, detail=str(e))
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+@router.post("/accounts/{account_id}/ads/{ad_id}/duplicate")
+async def duplicate_ad(account_id: str, ad_id: str, body: CopyIn, db: Session = Depends(get_db)):
+    client = await get_client_for_account(account_id, db)
+    try:
+        result = await client.copy_ad(ad_id, body.status_option)
+        _log(db, account_id, "duplicate_ad", f"{ad_id}->{result}")
+        return result
+    except FBAPIError as e:
+        _log(db, account_id, "duplicate_ad", str(e), "failed")
         raise HTTPException(status_code=e.status_code, detail=str(e))

@@ -80,23 +80,63 @@ fb-ads-panel/
 
 | 方法 | 路径 | 说明 |
 |---|---|---|
-| POST | `/api/login` | 登录，返回 token（用于后续请求头 `X-Panel-Token`） |
-| GET | `/api/accounts` | 广告账户列表 |
-| GET | `/api/accounts/{id}` | 单个账户详情（花费/余额/上限） |
-| POST | `/api/accounts/{id}/spend_cap` | 设置花费上限 |
+| POST | `/api/login` | 账号密码登录，返回 JWT（后续请求头 `Authorization: Bearer <token>`） |
+| GET | `/api/accounts` | 广告账户列表（聚合所有 BM，含 `remaining_budget` 剩余可花费额度） |
+| GET | `/api/accounts/{id}` | 单个账户详情（花费/花费上限/剩余可花费额度） |
+| POST | `/api/accounts/{id}/spend_cap` | 设置花费上限（传 0 = 清除上限） |
 | GET/POST | `/api/accounts/{id}/campaigns` | 广告系列 列表/创建 |
+| PATCH | `/api/accounts/{id}/campaigns/{campaign_id}` | 修改广告系列（名称/状态/预算） |
+| POST | `/api/accounts/{id}/campaigns/{campaign_id}/duplicate` | 复制广告系列（Facebook 原生深拷贝） |
 | GET/POST | `/api/accounts/{id}/adsets` | 广告组 列表/创建 |
-| POST | `/api/accounts/{id}/images` | 上传素材图片 |
+| PATCH | `/api/accounts/{id}/adsets/{adset_id}` | 修改广告组（名称/状态/预算/出价） |
+| POST | `/api/accounts/{id}/adsets/{adset_id}/duplicate` | 复制广告组（Facebook 原生深拷贝，可连同其下广告一起复制） |
+| POST | `/api/accounts/{id}/images` | 上传素材图片（全程内存转发，不落盘） |
 | POST | `/api/accounts/{id}/creatives` | 创建广告创意 |
 | GET/POST | `/api/accounts/{id}/ads` | 广告 列表/创建 |
-| POST | `/api/accounts/{id}/objects/{object_id}/status` | 启用/暂停/归档任意对象（Campaign/AdSet/Ad） |
+| PATCH | `/api/accounts/{id}/ads/{ad_id}` | 修改广告（名称/状态） |
+| POST | `/api/accounts/{id}/ads/{ad_id}/duplicate` | 复制广告 |
+| POST | `/api/accounts/{id}/objects/{object_id}/status` | 通用启停接口（Campaign/AdSet/Ad 均可用） |
 | GET | `/api/accounts/{id}/insights` | 数据洞察（`date_preset`, `by_campaign`） |
 | GET/POST | `/api/credentials` | BM 凭证 列表/新增（新增时会先校验令牌有效性） |
 | PATCH/DELETE | `/api/credentials/{id}` | 更新（启停/改令牌）/删除某个 BM 凭证 |
 
+
 ---
 
-## 五、后续可扩展方向
+## 五、关于「余额」字段的重要说明
+
+Facebook 原始 `balance` 字段的含义因账户资金模式而异：
+- 预付费账户：代表账户预存的余额
+- 信用额度账户：代表**当前待还款金额**（不是可用额度！）
+
+这两种含义都**不等于**"距花费上限还能花多少"。因此面板改为额外计算一个真正有用的字段：
+
+```
+剩余可花费额度 = 花费上限（spend_cap） − 已花费（amount_spent）
+```
+
+「额度管理」页面同时展示这个计算值和 Facebook 原始 `balance`（仅供参考），避免混淆。
+更新花费上限失败时，面板会把 Facebook 返回的具体错误原因直接展示出来（常见原因：新上限低于已花费金额、令牌权限不足、账户资金模式不支持通过 API 改上限等）。
+
+---
+
+## 六、关于素材上传
+
+上传的图片/素材全程只经过内存，直接转发给 Facebook 的 `/adimages` 接口，本服务**不会**把文件写入磁盘、也不落库保存——请求结束后数据即从内存释放，不占用服务器存储空间。
+
+---
+
+## 七、广告管理（对齐 Ads Manager 常用操作）
+
+「广告管理」标签页支持：选择账户 → 看该账户下所有 Campaign → 点进去看其 AdSet → 再点进去看其 Ad。每一级都可以：
+
+- **暂停/启用**（一键切换状态）
+- **改预算**（Campaign/AdSet 级别的每日预算）
+- **复制**（调用 Facebook 原生的 `/copies` 深拷贝接口，AdSet/Campaign 复制时可选是否连同子对象一起复制，默认复制出来的状态是 PAUSED，避免误开花钱）
+
+---
+
+## 八、后续可扩展方向
 
 - 多用户账号体系（目前是单管理员账号密码登录，适合个人/小团队自用）
 - Webhook 接收 Facebook 账户状态变更、预算耗尽等通知
@@ -106,7 +146,7 @@ fb-ads-panel/
 
 ---
 
-## 六、安全提醒
+## 九、安全提醒
 
 - 每个 BM 系统用户令牌权限很高，可直接花钱投放广告，请勿泄露、不要提交到公开仓库（`.env` 已在 `.gitignore` 里，令牌本身存在 SQLite `data/panel.db` 中，同样注意不要把 `data/` 目录提交或公开）。
 - 建议只通过 Apache/Nginx 加 HTTPS 之后对外暴露，不要把容器端口直接绑定在公网网卡上（`docker-compose.yml` 里已改成 `127.0.0.1:8811:8000`，宿主机只在本机回环地址监听 8811，AWS Security Group 无需为此端口开放任何入站规则）。

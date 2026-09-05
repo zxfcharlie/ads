@@ -25,6 +25,7 @@
     <nav>
       <button class="tab-btn active" data-tab="accounts">账户总览</button>
       <button class="tab-btn" data-tab="create">创建广告</button>
+      <button class="tab-btn" data-tab="manage">广告管理</button>
       <button class="tab-btn" data-tab="insights">数据分析</button>
       <button class="tab-btn" data-tab="budget">额度管理</button>
       <button class="tab-btn" data-tab="bm">BM账号管理</button>
@@ -111,6 +112,49 @@
       </div>
     </section>
 
+    <!-- 广告管理：类似 Ads Manager，改预算/暂停启用/复制 -->
+    <section id="tab-manage" class="tab-panel hidden">
+      <div class="panel-header">
+        <h3>广告管理</h3>
+        <select id="manage-account-select" onchange="onAccountChangeForManage()"></select>
+      </div>
+
+      <div class="card">
+        <h4>广告系列 Campaign</h4>
+        <table class="grid">
+          <thead>
+            <tr><th>名称</th><th>状态</th><th>每日预算</th><th>操作</th></tr>
+          </thead>
+          <tbody id="manage-campaigns-tbody"></tbody>
+        </table>
+      </div>
+
+      <div class="card">
+        <div class="panel-header" style="margin-bottom:6px">
+          <h4 style="margin:0">广告组 AdSet（属于：<span id="manage-current-campaign-name">请先选择上方广告系列</span>）</h4>
+        </div>
+        <table class="grid">
+          <thead>
+            <tr><th>名称</th><th>状态</th><th>每日预算</th><th>操作</th></tr>
+          </thead>
+          <tbody id="manage-adsets-tbody"></tbody>
+        </table>
+      </div>
+
+      <div class="card">
+        <div class="panel-header" style="margin-bottom:6px">
+          <h4 style="margin:0">广告 Ad（属于：<span id="manage-current-adset-name">请先选择上方广告组</span>）</h4>
+        </div>
+        <table class="grid">
+          <thead>
+            <tr><th>名称</th><th>状态</th><th>操作</th></tr>
+          </thead>
+          <tbody id="manage-ads-tbody"></tbody>
+        </table>
+      </div>
+      <div id="manage-result" class="result"></div>
+    </section>
+
     <!-- 数据分析 -->
     <section id="tab-insights" class="tab-panel hidden">
       <div class="panel-header">
@@ -139,7 +183,11 @@
       <div class="card">
         <input id="budget-new-cap" type="number" placeholder="新的花费上限（最小货币单位，如 100000 = $1000.00）" />
         <button onclick="setSpendCap()">更新花费上限</button>
+        <button onclick="clearSpendCap()" style="background:#888">清除上限（不限制）</button>
         <div id="budget-result" class="result"></div>
+        <p style="font-size:12px;color:#888;margin-top:8px">
+          提示：Facebook 不允许把上限设得比"已花费金额"还低；清除上限请点右侧按钮（相当于设为 0）。
+        </p>
       </div>
     </section>
 
