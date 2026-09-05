@@ -7,7 +7,7 @@ from pydantic import BaseModel
 from app.config import settings
 from app.database import Base, engine
 from app.auth import create_access_token, decode_access_token
-from app.routers import accounts, campaigns, insights, credentials
+from app.routers import accounts, campaigns, insights, credentials, targeting
 
 Base.metadata.create_all(bind=engine)
 
@@ -51,6 +51,7 @@ app.include_router(accounts.router, dependencies=[Depends(verify_token)])
 app.include_router(campaigns.router, dependencies=[Depends(verify_token)])
 app.include_router(insights.router, dependencies=[Depends(verify_token)])
 app.include_router(credentials.router, dependencies=[Depends(verify_token)])
+app.include_router(targeting.router, dependencies=[Depends(verify_token)])
 
 
 @app.get("/api/health")

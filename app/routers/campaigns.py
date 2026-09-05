@@ -369,6 +369,11 @@ async def duplicate_ad(account_id: str, ad_id: str, body: CopyIn, db: Session = 
 # special_ad_categories 等必填参数上出错）。这里一次性把三层都建好，统一用 PAUSED
 # 状态落地为"草稿"，核对无误后再调用 /publish 一次性切到 ACTIVE。
 
+class InterestIn(BaseModel):
+    id: str
+    name: str
+
+
 class QuickLaunchIn(BaseModel):
     # 广告系列
     campaign_name: str
@@ -381,6 +386,9 @@ class QuickLaunchIn(BaseModel):
     countries: list[str] = ["US"]
     age_min: int = 18
     age_max: int = 65
+    interests: list[InterestIn] = []          # 兴趣定向（细分定向）
+    pixel_id: Optional[str] = None             # 优化目标为"转化"时必填
+    custom_event_type: Optional[str] = None    # 转化事件，如 PURCHASE / LEAD 等
     # 广告素材 + 广告
     ad_name: str
     page_id: str
@@ -405,6 +413,18 @@ async def quick_launch(account_id: str, body: QuickLaunchIn, db: Session = Depen
             "age_min": body.age_min,
             "age_max": body.age_max,
         }
+        if body.interests:
+            targeting["flexible_spec"] = [
+                {"interests": [{"id": i.id, "name": i.name} for i in body.interests]}
+            ]
+
+        promoted_object = None
+        if body.optimization_goal == "OFFSITE_CONVERSIONS" and body.pixel_id:
+            promoted_object = {
+                "pixel_id": body.pixel_id,
+                "custom_event_type": body.custom_event_type or "PURCHASE",
+            }
+
         adset = await client.create_adset(
             account_id,
             body.adset_name,
@@ -414,6 +434,7 @@ async def quick_launch(account_id: str, body: QuickLaunchIn, db: Session = Depen
             body.optimization_goal,
             targeting,
             status="PAUSED",
+            promoted_object=promoted_object,
         )
         created["adset_id"] = adset["id"]
 
@@ -427,6 +448,7 @@ async def quick_launch(account_id: str, body: QuickLaunchIn, db: Session = Depen
             body.headline,
         )
         created["creative_id"] = creative["id"]
+
 
         ad = await client.create_ad(
             account_id, body.ad_name, created["adset_id"], created["creative_id"], status="PAUSED"

@@ -101,6 +101,9 @@ fb-ads-panel/
 | GET | `/api/accounts/{id}/ads/overview` | 广告列表 + 聚合指标（需传 `adset_id`） |
 | POST | `/api/accounts/{id}/quick_launch` | 一次性创建系列+组+素材+广告，全部落地为 PAUSED 草稿 |
 | POST | `/api/accounts/{id}/publish` | 把草稿的系列/组/广告统一切到 ACTIVE，正式发布 |
+| GET | `/api/accounts/{id}/pixels` | 该账户下的像素列表 |
+| GET | `/api/accounts/{id}/pages` | 当前令牌可管理的 Facebook 主页列表 |
+| GET | `/api/accounts/{id}/interests?q=` | 搜索 Facebook 兴趣定向库 |
 | POST | `/api/accounts/{id}/objects/{object_id}/status` | 通用启停接口（Campaign/AdSet/Ad 均可用） |
 | GET | `/api/accounts/{id}/insights` | 按天/按系列的原始数据洞察（**当前 UI 未使用，仅供 API 直接调用**） |
 | POST | `/api/accounts/{id}/spend_cap` | 设置花费上限，传 0 = 清除上限（**当前 UI 未使用，仅供 API 直接调用**） |
@@ -160,7 +163,14 @@ Facebook 原始 `balance` 字段的含义因账户资金模式而异（预付费
 - 提交后后台依次执行：创建系列 → 创建广告组 → 上传图片/创建创意 → 创建广告，全部以 **PAUSED（草稿，不会花钱）** 状态落地
 - 创建成功后会出现一个「发布上线」按钮，点击后统一把系列/组/广告三者的状态切到 **ACTIVE**，正式开始投放
 - 如果中途某一步失败（比如广告组建到一半失败），提示信息里会告诉你**前面已经成功创建到哪一步**（Facebook 没有跨对象事务回滚，已创建的部分不会自动撤销，需要你自己判断是否要去 Ads Manager 里清理）
-- 已有的系列/组下面继续「加一个广告组」「加一个广告」，还是用点进对应层级后出现的「+ 新建广告组」「+ 新建广告」（这两个走的是原来的单独创建接口，不受这次改动影响）
+- 已有的系列/组下面继续「加一个广告组」「加一个广告」，还是用点进对应层级后出现的「+ 新建广告组」「+ 新建广告」（这两个走的是原来的单独创建接口，暂时还是文本输入国家，未来可以按需扩展）
+
+**表单里的定向字段都是从 Facebook 实时读取的真实数据**，不是让你手打：
+- **投放国家**：输入国家名称或代码，从内置的常用国家列表里搜索、点选，可多选，支持删除
+- **兴趣定向**：输入关键词（如"瑜伽""跑步鞋"），实时调用 Facebook 的兴趣定向库搜索（`GET /search?type=adinterest`），点选加入，可多选
+- **Facebook 主页**：下拉框读取当前系统用户令牌被授权管理的所有主页（`GET /me/accounts`），不用再去 Facebook 后台复制 Page ID
+- **像素 + 转化事件**：优化目标选择「转化」时才会出现。像素下拉框读取该广告账户下真实存在的像素（`GET /{account_id}/adspixels`）；转化事件是 Facebook 标准事件列表（Purchase/Lead/AddToCart 等），提交时会作为 `promoted_object` 绑定到广告组上
+- **转化位置**：目前面板的广告创建走的是网页链接创意（`link_data`），所以固定显示"网站"，还没做 App/Messenger 等其他转化位置的支持
 
 每一行都支持**暂停/启用**一键切换和**复制**（调用 Facebook 原生 `/copies` 深拷贝接口，复制出来的默认是 PAUSED，避免误开花钱；AdSet/Campaign 复制时会连同子对象一起复制）。
 

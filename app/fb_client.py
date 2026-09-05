@@ -135,6 +135,18 @@ class FBClient:
                 by_id[obj_id] = _parse_metrics_row(row)
         return by_id
 
+    # ---------- 定向相关：像素 / 主页 / 兴趣词 ----------
+    async def list_pixels(self, account_id: str):
+        return await self._get(f"{account_id}/adspixels", {"fields": "id,name", "limit": 200})
+
+    async def list_pages(self):
+        """当前系统用户令牌被授权管理的所有 Facebook 主页"""
+        return await self._get("me/accounts", {"fields": "id,name", "limit": 200})
+
+    async def search_interests(self, query: str, limit: int = 12):
+        """搜索 Facebook 兴趣定向库（细分定向用），返回 id/name/audience_size_lower_bound 等"""
+        return await self._get("search", {"type": "adinterest", "q": query, "limit": limit})
+
     # ---------- 广告系列 / 广告组 / 广告 ----------
     async def list_campaigns(self, account_id: str):
         fields = "id,name,status,objective,daily_budget,lifetime_budget,created_time"
@@ -177,6 +189,7 @@ class FBClient:
         targeting: dict,
         status: str = "PAUSED",
         bid_amount_cents: int | None = None,
+        promoted_object: dict | None = None,
     ):
         data = {
             "name": name,
@@ -189,6 +202,9 @@ class FBClient:
         }
         if bid_amount_cents:
             data["bid_amount"] = bid_amount_cents
+        if promoted_object:
+            # 优化目标为"转化"时，Facebook 要求用 promoted_object 绑定像素 + 具体转化事件
+            data["promoted_object"] = _to_json(promoted_object)
         return await self._post(f"{account_id}/adsets", data)
 
     async def create_ad_creative(

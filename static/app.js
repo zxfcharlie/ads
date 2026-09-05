@@ -614,7 +614,7 @@ function renderCreateArea() {
         <h4>新建广告（系列 + 广告组 + 广告一起创建，先存草稿）</h4>
         <p style="font-size:12px;color:#888;margin:-4px 0 10px">
           Facebook 要求系列成套配置才有意义。这里一次性把三层都填好，创建后默认是 <b>PAUSED（草稿，不会花钱）</b>，
-          核对无误后点「发布上线」再统一切到 ACTIVE。
+          核对无误后点「发布上线」再统一切到 ACTIVE。国家/主页/像素/兴趣词都是从你的 Facebook 账户实时读取的真实数据。
         </p>
 
         <div style="font-weight:600;margin-bottom:4px">1. 广告系列</div>
@@ -630,19 +630,61 @@ function renderCreateArea() {
         <div style="font-weight:600;margin:14px 0 4px">2. 广告组</div>
         <input id="ql-adset-name" placeholder="广告组名称" />
         <input id="ql-adset-budget" type="number" step="0.01" placeholder="每日预算（美元，如 10 = $10.00）" />
-        <input id="ql-countries" placeholder="投放国家，逗号分隔，如 US,CA" value="US" />
+
+        <div class="picker-field">
+          <label class="field-label">投放国家</label>
+          <div class="chip-box" id="ql-country-chips"></div>
+          <input id="ql-country-search" placeholder="输入国家名称或代码搜索，如 美国 / US" oninput="onCountrySearchInput()" onfocus="onCountrySearchInput()" />
+          <div class="suggest-list hidden" id="ql-country-suggest"></div>
+        </div>
+
         <input id="ql-age-min" type="number" placeholder="最小年龄" value="18" />
         <input id="ql-age-max" type="number" placeholder="最大年龄" value="65" />
-        <select id="ql-optimization">
+
+        <div class="picker-field">
+          <label class="field-label">兴趣定向（可选，输入关键词从 Facebook 兴趣库里搜）</label>
+          <div class="chip-box" id="ql-interest-chips"></div>
+          <input id="ql-interest-search" placeholder="如：瑜伽、跑步鞋、宠物用品..." oninput="onInterestSearchInput()" />
+          <div class="suggest-list hidden" id="ql-interest-suggest"></div>
+        </div>
+
+        <label class="field-label">优化目标</label>
+        <select id="ql-optimization" onchange="onOptimizationChange()">
           <option value="LINK_CLICKS">链接点击</option>
           <option value="IMPRESSIONS">曝光</option>
           <option value="REACH">触达</option>
           <option value="OFFSITE_CONVERSIONS">转化</option>
         </select>
 
+        <div id="ql-conversion-fields" class="hidden" style="margin-top:10px;padding:12px;background:#f8fafc;border-radius:8px">
+          <label class="field-label">转化位置</label>
+          <select disabled><option>网站（目前面板仅支持网站转化）</option></select>
+          <label class="field-label">像素 Pixel</label>
+          <select id="ql-pixel-select"><option value="">加载中...</option></select>
+          <label class="field-label">转化事件</label>
+          <select id="ql-event-select">
+            <option value="PURCHASE">购买 Purchase</option>
+            <option value="LEAD">潜在客户 Lead</option>
+            <option value="COMPLETE_REGISTRATION">完成注册 CompleteRegistration</option>
+            <option value="ADD_TO_CART">加入购物车 AddToCart</option>
+            <option value="INITIATE_CHECKOUT">发起结账 InitiateCheckout</option>
+            <option value="ADD_PAYMENT_INFO">添加支付信息 AddPaymentInfo</option>
+            <option value="ADD_TO_WISHLIST">加入心愿单 AddToWishlist</option>
+            <option value="SUBSCRIBE">订阅 Subscribe</option>
+            <option value="START_TRIAL">开始试用 StartTrial</option>
+            <option value="CONTACT">联系 Contact</option>
+            <option value="SEARCH">搜索 Search</option>
+            <option value="VIEW_CONTENT">查看内容 ViewContent</option>
+            <option value="DONATE">捐赠 Donate</option>
+            <option value="SUBMIT_APPLICATION">提交申请 SubmitApplication</option>
+            <option value="SCHEDULE">预约 Schedule</option>
+          </select>
+        </div>
+
         <div style="font-weight:600;margin:14px 0 4px">3. 广告素材 + 广告</div>
         <input id="ql-ad-name" placeholder="广告名称" />
-        <input id="ql-page-id" placeholder="Facebook 主页 Page ID" />
+        <label class="field-label">Facebook 主页</label>
+        <select id="ql-page-select"><option value="">加载中...</option></select>
         <input id="ql-message" placeholder="正文文案" />
         <input id="ql-link" placeholder="落地页链接 https://..." />
         <input id="ql-headline" placeholder="标题（可选）" />
@@ -655,6 +697,7 @@ function renderCreateArea() {
         <div id="create-result" class="result"></div>
       </div>`
       : `<button onclick="toggleCreateForm(true)">+ 新建广告（系列+组+广告一起建）</button>`;
+    if (MANAGE.showCreateForm) initQuickLaunchWidgets();
   } else if (MANAGE.level === "adsets") {
     area.innerHTML = MANAGE.showCreateForm
       ? `
@@ -708,19 +751,31 @@ async function submitQuickLaunch() {
   const objective = document.getElementById("ql-objective").value;
   const adset_name = document.getElementById("ql-adset-name").value;
   const budgetDollars = parseFloat(document.getElementById("ql-adset-budget").value);
-  const countries = document.getElementById("ql-countries").value.split(",").map((s) => s.trim()).filter(Boolean);
+  const countries = QL_SELECTED_COUNTRIES.map((c) => c.code);
   const age_min = parseInt(document.getElementById("ql-age-min").value, 10);
   const age_max = parseInt(document.getElementById("ql-age-max").value, 10);
   const optimization_goal = document.getElementById("ql-optimization").value;
+  const interests = QL_SELECTED_INTERESTS;
   const ad_name = document.getElementById("ql-ad-name").value;
-  const page_id = document.getElementById("ql-page-id").value;
+  const page_id = document.getElementById("ql-page-select").value;
   const message = document.getElementById("ql-message").value;
   const link = document.getElementById("ql-link").value;
   const headline = document.getElementById("ql-headline").value;
   const fileInput = document.getElementById("ql-image");
 
-  if (!campaign_name || !adset_name || isNaN(budgetDollars) || budgetDollars <= 0 || !ad_name || !page_id || !message || !link) {
-    box.innerText = "请完整填写：系列名称、广告组名称与有效预算、广告名称、主页ID、正文文案、落地页链接";
+  let pixel_id = null;
+  let custom_event_type = null;
+  if (optimization_goal === "OFFSITE_CONVERSIONS") {
+    pixel_id = document.getElementById("ql-pixel-select").value;
+    custom_event_type = document.getElementById("ql-event-select").value;
+    if (!pixel_id) {
+      box.innerText = "优化目标选择了「转化」，需要先选择一个像素";
+      return;
+    }
+  }
+
+  if (!campaign_name || !adset_name || !countries.length || isNaN(budgetDollars) || budgetDollars <= 0 || !ad_name || !page_id || !message || !link) {
+    box.innerText = "请完整填写：系列名称、投放国家、广告组名称与有效预算、广告名称、主页、正文文案、落地页链接";
     return;
   }
 
@@ -750,6 +805,9 @@ async function submitQuickLaunch() {
       age_min,
       age_max,
       optimization_goal,
+      interests,
+      pixel_id,
+      custom_event_type,
       ad_name,
       page_id,
       message,
@@ -863,5 +921,174 @@ async function submitCreateAd() {
     loadManageTable();
   } catch (e) {
     box.innerText = "创建失败：" + e.message;
+  }
+}
+
+// ---------------- 整套草稿表单：国家 / 兴趣词 / 像素 / 主页 都读取真实数据 ----------------
+const COUNTRIES = [
+  { code: "US", name: "美国" }, { code: "CA", name: "加拿大" }, { code: "GB", name: "英国" },
+  { code: "AU", name: "澳大利亚" }, { code: "DE", name: "德国" }, { code: "FR", name: "法国" },
+  { code: "JP", name: "日本" }, { code: "KR", name: "韩国" }, { code: "SG", name: "新加坡" },
+  { code: "MY", name: "马来西亚" }, { code: "TH", name: "泰国" }, { code: "VN", name: "越南" },
+  { code: "PH", name: "菲律宾" }, { code: "ID", name: "印度尼西亚" }, { code: "IN", name: "印度" },
+  { code: "BR", name: "巴西" }, { code: "MX", name: "墨西哥" }, { code: "AR", name: "阿根廷" },
+  { code: "IT", name: "意大利" }, { code: "ES", name: "西班牙" }, { code: "NL", name: "荷兰" },
+  { code: "BE", name: "比利时" }, { code: "SE", name: "瑞典" }, { code: "NO", name: "挪威" },
+  { code: "DK", name: "丹麦" }, { code: "FI", name: "芬兰" }, { code: "PL", name: "波兰" },
+  { code: "PT", name: "葡萄牙" }, { code: "IE", name: "爱尔兰" }, { code: "CH", name: "瑞士" },
+  { code: "AT", name: "奥地利" }, { code: "NZ", name: "新西兰" }, { code: "AE", name: "阿联酋" },
+  { code: "SA", name: "沙特阿拉伯" }, { code: "IL", name: "以色列" }, { code: "TR", name: "土耳其" },
+  { code: "ZA", name: "南非" }, { code: "EG", name: "埃及" }, { code: "HK", name: "中国香港" },
+  { code: "TW", name: "中国台湾" }, { code: "CL", name: "智利" }, { code: "CO", name: "哥伦比亚" },
+  { code: "PE", name: "秘鲁" }, { code: "UA", name: "乌克兰" }, { code: "CZ", name: "捷克" },
+  { code: "RO", name: "罗马尼亚" }, { code: "GR", name: "希腊" }, { code: "HU", name: "匈牙利" },
+];
+
+let QL_SELECTED_COUNTRIES = [];
+let QL_SELECTED_INTERESTS = [];
+
+function renderCountryChips() {
+  const box = document.getElementById("ql-country-chips");
+  if (!box) return;
+  box.innerHTML = QL_SELECTED_COUNTRIES
+    .map((c, i) => `<span class="chip">${c.name} (${c.code}) <a href="#" onclick="removeCountry(${i}); return false;">×</a></span>`)
+    .join("");
+}
+
+function removeCountry(index) {
+  QL_SELECTED_COUNTRIES.splice(index, 1);
+  renderCountryChips();
+}
+
+function addCountry(code) {
+  const c = COUNTRIES.find((x) => x.code === code);
+  if (c && !QL_SELECTED_COUNTRIES.some((s) => s.code === code)) {
+    QL_SELECTED_COUNTRIES.push(c);
+    renderCountryChips();
+  }
+  document.getElementById("ql-country-search").value = "";
+  document.getElementById("ql-country-suggest").classList.add("hidden");
+}
+
+function onCountrySearchInput() {
+  const q = document.getElementById("ql-country-search").value.trim().toLowerCase();
+  const suggestBox = document.getElementById("ql-country-suggest");
+  if (!q) {
+    suggestBox.classList.add("hidden");
+    suggestBox.innerHTML = "";
+    return;
+  }
+  const matches = COUNTRIES.filter(
+    (c) => (c.name.includes(q) || c.code.toLowerCase().includes(q)) && !QL_SELECTED_COUNTRIES.some((s) => s.code === c.code)
+  ).slice(0, 8);
+  if (!matches.length) {
+    suggestBox.classList.add("hidden");
+    suggestBox.innerHTML = "";
+    return;
+  }
+  suggestBox.innerHTML = matches
+    .map((c) => `<div class="suggest-item" onclick="addCountry('${c.code}')">${c.name} (${c.code})</div>`)
+    .join("");
+  suggestBox.classList.remove("hidden");
+}
+
+function renderInterestChips() {
+  const box = document.getElementById("ql-interest-chips");
+  if (!box) return;
+  box.innerHTML = QL_SELECTED_INTERESTS
+    .map((it, i) => `<span class="chip">${it.name} <a href="#" onclick="removeInterest(${i}); return false;">×</a></span>`)
+    .join("");
+}
+
+function removeInterest(index) {
+  QL_SELECTED_INTERESTS.splice(index, 1);
+  renderInterestChips();
+}
+
+function addInterest(id, name) {
+  if (!QL_SELECTED_INTERESTS.some((x) => x.id === id)) {
+    QL_SELECTED_INTERESTS.push({ id, name });
+    renderInterestChips();
+  }
+  document.getElementById("ql-interest-search").value = "";
+  document.getElementById("ql-interest-suggest").classList.add("hidden");
+}
+
+let _interestSearchTimer = null;
+function onInterestSearchInput() {
+  clearTimeout(_interestSearchTimer);
+  const q = document.getElementById("ql-interest-search").value.trim();
+  const suggestBox = document.getElementById("ql-interest-suggest");
+  if (q.length < 2) {
+    suggestBox.classList.add("hidden");
+    suggestBox.innerHTML = "";
+    return;
+  }
+  _interestSearchTimer = setTimeout(async () => {
+    try {
+      const res = await api(`/api/accounts/${MANAGE.accountId}/interests?q=${encodeURIComponent(q)}`);
+      const items = (res.data || []).slice(0, 8);
+      if (!items.length) {
+        suggestBox.innerHTML = `<div class="suggest-item" style="color:#888">没有匹配的兴趣词</div>`;
+        suggestBox.classList.remove("hidden");
+        return;
+      }
+      suggestBox.innerHTML = items
+        .map((it) => {
+          const sizeHint = it.audience_size_lower_bound ? ` <span class="hint-text">(约${fmtNum(it.audience_size_lower_bound)}+)</span>` : "";
+          return `<div class="suggest-item" onclick='addInterest(${JSON.stringify(it.id)}, ${JSON.stringify(it.name)})'>${it.name}${sizeHint}</div>`;
+        })
+        .join("");
+      suggestBox.classList.remove("hidden");
+    } catch (e) {
+      suggestBox.classList.add("hidden");
+    }
+  }, 350);
+}
+
+function onOptimizationChange() {
+  const val = document.getElementById("ql-optimization").value;
+  const box = document.getElementById("ql-conversion-fields");
+  if (val === "OFFSITE_CONVERSIONS") {
+    box.classList.remove("hidden");
+  } else {
+    box.classList.add("hidden");
+  }
+}
+
+async function initQuickLaunchWidgets() {
+  QL_SELECTED_COUNTRIES = [COUNTRIES.find((c) => c.code === "US")];
+  QL_SELECTED_INTERESTS = [];
+  renderCountryChips();
+  renderInterestChips();
+  const convBox = document.getElementById("ql-conversion-fields");
+  if (convBox) convBox.classList.add("hidden");
+
+  // 拉取该 BM 下系统用户可管理的主页
+  try {
+    const pagesRes = await api(`/api/accounts/${MANAGE.accountId}/pages`);
+    const pages = pagesRes.data || [];
+    const pageSelect = document.getElementById("ql-page-select");
+    pageSelect.innerHTML = pages.length
+      ? pages.map((p) => `<option value="${p.id}">${p.name}</option>`).join("")
+      : `<option value="">未找到可用主页，请检查系统用户是否已被授予该主页权限</option>`;
+  } catch (e) {
+    const el = document.getElementById("ql-page-select");
+    if (el) el.innerHTML = `<option value="">加载失败：${e.message}</option>`;
+  }
+
+  // 拉取该账户下的像素（转化优化目标时用）
+  try {
+    const pixelsRes = await api(`/api/accounts/${MANAGE.accountId}/pixels`);
+    const pixels = pixelsRes.data || [];
+    const pixelSelect = document.getElementById("ql-pixel-select");
+    if (pixelSelect) {
+      pixelSelect.innerHTML = pixels.length
+        ? pixels.map((p) => `<option value="${p.id}">${p.name}</option>`).join("")
+        : `<option value="">该账户下未找到像素，请先在 Business Manager 里创建</option>`;
+    }
+  } catch (e) {
+    const el = document.getElementById("ql-pixel-select");
+    if (el) el.innerHTML = `<option value="">加载失败：${e.message}</option>`;
   }
 }
