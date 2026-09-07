@@ -80,12 +80,15 @@ function logout() {
 
 function applyAdminVisibility() {
   const bmNav = document.getElementById("nav-bm");
+  const gCredNav = document.getElementById("nav-g-credentials");
   const adminWrap = document.getElementById("admin-section-wrap");
   if (IS_ADMIN) {
     if (bmNav) bmNav.classList.remove("hidden");
+    if (gCredNav) gCredNav.classList.remove("hidden");
     if (adminWrap) adminWrap.classList.remove("hidden");
   } else {
     if (bmNav) bmNav.classList.add("hidden");
+    if (gCredNav) gCredNav.classList.add("hidden");
     if (adminWrap) adminWrap.classList.add("hidden");
   }
 }
@@ -108,6 +111,10 @@ window.onload = () => {
       document.getElementById("tab-" + btn.dataset.tab).classList.remove("hidden");
       if (btn.dataset.tab === "bm") loadCredentials();
       if (btn.dataset.tab === "users") loadUsers();
+      if (btn.dataset.tab === "stats") loadDailyStats();
+      if (btn.dataset.tab === "g-accounts") loadGoogleAccounts();
+      if (btn.dataset.tab === "g-stats") loadGoogleDailyStats();
+      if (btn.dataset.tab === "g-credentials") loadGoogleCredentials();
       if (btn.dataset.tab === "manage") fillManageBMSelect();
     });
   });
@@ -197,6 +204,20 @@ async function saveNote(accountId, note) {
 
 function fillAccountSelects() {
   fillManageBMSelect();
+  fillStatsAccountSelect();
+}
+
+function fillStatsAccountSelect() {
+  const sel = document.getElementById("stats-account-select");
+  if (!sel) return;
+  const opts = ACCOUNTS.map((a) => `<option value="${a.id}">${a.name} (${a.id})</option>`).join("");
+  sel.innerHTML = `<option value="ALL">全部账户汇总</option>` + opts;
+
+  const monthInput = document.getElementById("stats-month");
+  if (monthInput && !monthInput.value) {
+    const now = new Date();
+    monthInput.value = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}`;
+  }
 }
 
 // ---- 广告管理：BM -> 账户 级联选择 ----
@@ -603,8 +624,20 @@ function renderManageRows(rows) {
     .join("");
 }
 
+// 已知的一些 Facebook 报错子错误码，给出比原始英文/错误码更直接的处理建议
+const FB_ERROR_TIPS = {
+  1885194: "深度复制的对象总数超过了 Facebook 的硬性上限（系列+组+广告最多合计 3 个）。解决办法：改选「只复制本身」，子对象自己手动补建。",
+  2446604: "这是被复制的那条视频广告本身的缩略图，在 Facebook 那边已经失效了，跟这次复制操作无关，也不是我们工具能绕过的问题。建议：①先去 Facebook Ads Manager 打开这条原始广告，重新保存/替换一下视频缩略图，再回来重试复制；②或者不复制它，改用「新建广告」重新上传一份素材创建一条新的。",
+};
+
+function appendFbErrorTip(message) {
+  const match = /子错误码：(\d+)/.exec(message);
+  const tip = match && FB_ERROR_TIPS[match[1]];
+  return tip ? `${message}\n\n💡 处理建议：${tip}` : message;
+}
+
 function reportManage(msg) {
-  document.getElementById("manage-result").innerText = msg;
+  document.getElementById("manage-result").innerText = appendFbErrorTip(msg);
 }
 
 function statusBadge(status) {
@@ -620,9 +653,9 @@ async function patchObject(kind, accountId, id, body) {
   });
 }
 
-async function duplicateObject(kind, accountId, id) {
+async function duplicateObject(kind, accountId, id, deepCopy) {
   return apiJSON(`/api/accounts/${accountId}/${kind}/${id}/duplicate`, {
-    deep_copy: true,
+    deep_copy: deepCopy,
     status_option: "PAUSED",
     rename_suffix: " - 副本",
   });
@@ -663,10 +696,22 @@ async function saveBudgetInline(kind, id) {
 function askDuplicate(kind, id) {
   const cell = document.getElementById(`dup-cell-${id}`);
   if (!cell) return;
+  if (kind === "ads") {
+    // 广告没有子对象，不受"深度复制≤3个对象"的限制，直接一个按钮
+    cell.innerHTML = `
+      <span style="font-size:12px;color:#555">复制这条广告？</span>
+      <button onclick="doDuplicate('${kind}','${id}', false)" style="padding:3px 8px;font-size:12px">确定</button>
+      <button onclick="cancelDuplicate('${kind}','${id}')" style="padding:3px 8px;font-size:12px;background:#888">取消</button>
+    `;
+    return;
+  }
   cell.innerHTML = `
-    <span style="font-size:12px;color:#555">复制出来默认暂停，确定？</span>
-    <button onclick="doDuplicate('${kind}','${id}')" style="padding:3px 8px;font-size:12px">确定</button>
-    <button onclick="cancelDuplicate('${kind}','${id}')" style="padding:3px 8px;font-size:12px;background:#888">取消</button>
+    <div style="font-size:12px;color:#555;line-height:1.6">
+      复制出来默认暂停：<br/>
+      <button onclick="doDuplicate('${kind}','${id}', false)" style="padding:3px 8px;font-size:12px;margin-top:2px">只复制本身</button>
+      <button onclick="doDuplicate('${kind}','${id}', true)" style="padding:3px 8px;font-size:12px">连同子对象（≤3个对象，超出会失败）</button>
+      <button onclick="cancelDuplicate('${kind}','${id}')" style="padding:3px 8px;font-size:12px;background:#888">取消</button>
+    </div>
   `;
 }
 
@@ -675,11 +720,11 @@ function cancelDuplicate(kind, id) {
   if (cell) cell.innerHTML = `<button onclick="askDuplicate('${kind}','${id}')">复制</button>`;
 }
 
-async function doDuplicate(kind, id) {
+async function doDuplicate(kind, id, deepCopy) {
   const cell = document.getElementById(`dup-cell-${id}`);
   if (cell) cell.innerHTML = `<span style="font-size:12px;color:#888">复制中...</span>`;
   try {
-    const result = await duplicateObject(kind, MANAGE.accountId, id);
+    const result = await duplicateObject(kind, MANAGE.accountId, id, deepCopy);
     reportManage("复制成功，新对象 ID：" + JSON.stringify(result));
     loadManageTable();
   } catch (e) {
@@ -1338,5 +1383,297 @@ async function revokeAccess(accessId) {
     loadUserAccess();
   } catch (e) {
     alert("撤销失败：" + e.message);
+  }
+}
+
+// ---------------- 数据统计：按月看每天的花费 / 销售额 ----------------
+async function loadDailyStats() {
+  const accountSel = document.getElementById("stats-account-select");
+  const monthInput = document.getElementById("stats-month");
+  const tbody = document.getElementById("stats-tbody");
+  const summaryBox = document.getElementById("stats-summary");
+  const resultBox = document.getElementById("stats-result");
+  if (!accountSel || !monthInput) return;
+
+  if (!monthInput.value) {
+    const now = new Date();
+    monthInput.value = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}`;
+  }
+  const [year, month] = monthInput.value.split("-").map((x) => parseInt(x, 10));
+  const accountId = accountSel.value;
+
+  tbody.innerHTML = `<tr><td colspan="5">加载中...</td></tr>`;
+  summaryBox.innerHTML = "";
+  resultBox.innerText = "";
+
+  try {
+    let rows, errors;
+    if (accountId === "ALL") {
+      const res = await api(`/api/accounts/stats/daily_summary?year=${year}&month=${month}`);
+      rows = res.data || [];
+      errors = res.errors || [];
+    } else {
+      const res = await api(`/api/accounts/${accountId}/daily_stats?year=${year}&month=${month}`);
+      rows = res.data || [];
+      errors = [];
+    }
+
+    if (errors.length) {
+      resultBox.innerText = errors.map((e) => `「${e.credential}${e.account ? " / " + e.account : ""}」拉取失败：${e.error}`).join("\n");
+    }
+
+    renderStatsSummary(rows);
+    renderStatsTable(rows);
+  } catch (e) {
+    tbody.innerHTML = `<tr><td colspan="5" style="color:red">加载失败：${e.message}</td></tr>`;
+  }
+}
+
+function renderStatsSummary(rows) {
+  const box = document.getElementById("stats-summary");
+  const totalSpend = rows.reduce((s, r) => s + Number(r.spend || 0), 0);
+  const totalRevenue = rows.reduce((s, r) => s + Number(r.revenue || 0), 0);
+  const totalPurchases = rows.reduce((s, r) => s + Number(r.purchases || 0), 0);
+  const roas = totalSpend ? (totalRevenue / totalSpend).toFixed(2) : "-";
+  box.innerHTML = `
+    <div class="stat-card"><div class="num">${fmtMoney(totalSpend)}</div><div class="label">本月总花费</div></div>
+    <div class="stat-card"><div class="num">${fmtMoney(totalRevenue)}</div><div class="label">本月总销售额</div></div>
+    <div class="stat-card"><div class="num">${fmtNum(totalPurchases)}</div><div class="label">购物次数</div></div>
+    <div class="stat-card"><div class="num">${roas}</div><div class="label">整体 ROAS</div></div>
+  `;
+}
+
+function renderStatsTable(rows) {
+  const tbody = document.getElementById("stats-tbody");
+  if (!rows.length) {
+    tbody.innerHTML = `<tr><td colspan="5">该月暂无数据</td></tr>`;
+    return;
+  }
+  tbody.innerHTML = rows
+    .map((r) => {
+      const roas = Number(r.spend) ? (Number(r.revenue) / Number(r.spend)).toFixed(2) : "-";
+      return `<tr>
+        <td>${r.date}</td>
+        <td>${fmtMoney(r.spend)}</td>
+        <td>${fmtMoney(r.revenue)}</td>
+        <td>${fmtNum(r.purchases)}</td>
+        <td>${roas}</td>
+      </tr>`;
+    })
+    .join("");
+}
+
+// ==================== Google 广告：账户总览 / 数据统计 / 凭证管理 ====================
+let G_ACCOUNTS = [];
+
+async function loadGoogleAccounts() {
+  const tbody = document.getElementById("g-accounts-tbody");
+  const errBox = document.getElementById("g-accounts-errors");
+  tbody.innerHTML = "<tr><td colspan='5'>加载中...</td></tr>";
+  errBox.innerHTML = "";
+  try {
+    const res = await api("/api/google/accounts");
+    G_ACCOUNTS = res.data || [];
+    tbody.innerHTML = "";
+    if (!G_ACCOUNTS.length) {
+      tbody.innerHTML = `<tr><td colspan="5">还没有可显示的账户${IS_ADMIN ? '，请先到「凭证管理」添加一套 Google Ads 凭证' : '，请联系管理员配置'}</td></tr>`;
+    }
+    G_ACCOUNTS.forEach((a) => {
+      const tr = document.createElement("tr");
+      tr.innerHTML = `
+        <td>${a.credential_label || "-"}</td>
+        <td>${a.name || "-"}</td>
+        <td>${a.id}</td>
+        <td>${a.currency || "-"}</td>
+        <td>${a.status || "-"}</td>
+      `;
+      tbody.appendChild(tr);
+    });
+    if (res.errors && res.errors.length) {
+      errBox.innerHTML = res.errors
+        .map((e) => `<div style="color:#d93025">「${e.credential}」拉取失败：${e.error}</div>`)
+        .join("");
+    }
+    fillGoogleStatsAccountSelect();
+  } catch (e) {
+    tbody.innerHTML = `<tr><td colspan="5" style="color:red">加载失败：${e.message}</td></tr>`;
+  }
+}
+
+function fillGoogleStatsAccountSelect() {
+  const sel = document.getElementById("g-stats-account-select");
+  if (!sel) return;
+  const opts = G_ACCOUNTS.map((a) => `<option value="${a.id}">${a.name} (${a.id})</option>`).join("");
+  sel.innerHTML = `<option value="ALL">全部账户汇总</option>` + opts;
+
+  const monthInput = document.getElementById("g-stats-month");
+  if (monthInput && !monthInput.value) {
+    const now = new Date();
+    monthInput.value = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}`;
+  }
+}
+
+async function loadGoogleDailyStats() {
+  const accountSel = document.getElementById("g-stats-account-select");
+  const monthInput = document.getElementById("g-stats-month");
+  const tbody = document.getElementById("g-stats-tbody");
+  const summaryBox = document.getElementById("g-stats-summary");
+  const resultBox = document.getElementById("g-stats-result");
+  if (!accountSel || !monthInput) return;
+
+  if (!G_ACCOUNTS.length) {
+    await loadGoogleAccounts();
+  }
+  if (!monthInput.value) {
+    const now = new Date();
+    monthInput.value = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}`;
+  }
+  const [year, month] = monthInput.value.split("-").map((x) => parseInt(x, 10));
+  const accountId = accountSel.value;
+
+  tbody.innerHTML = `<tr><td colspan="5">加载中...</td></tr>`;
+  summaryBox.innerHTML = "";
+  resultBox.innerText = "";
+
+  try {
+    let rows, errors;
+    if (accountId === "ALL") {
+      const res = await api(`/api/google/stats/daily_summary?year=${year}&month=${month}`);
+      rows = res.data || [];
+      errors = res.errors || [];
+    } else {
+      const res = await api(`/api/google/accounts/${accountId}/daily_stats?year=${year}&month=${month}`);
+      rows = res.data || [];
+      errors = [];
+    }
+
+    if (errors.length) {
+      resultBox.innerText = errors.map((e) => `「${e.credential}」拉取失败：${e.error}`).join("\n");
+    }
+
+    renderGoogleStatsSummary(rows);
+    renderGoogleStatsTable(rows);
+  } catch (e) {
+    tbody.innerHTML = `<tr><td colspan="5" style="color:red">加载失败：${e.message}</td></tr>`;
+  }
+}
+
+function renderGoogleStatsSummary(rows) {
+  const box = document.getElementById("g-stats-summary");
+  const totalSpend = rows.reduce((s, r) => s + Number(r.spend || 0), 0);
+  const totalRevenue = rows.reduce((s, r) => s + Number(r.revenue || 0), 0);
+  const totalConversions = rows.reduce((s, r) => s + Number(r.purchases || 0), 0);
+  const roas = totalSpend ? (totalRevenue / totalSpend).toFixed(2) : "-";
+  box.innerHTML = `
+    <div class="stat-card"><div class="num">${fmtMoney(totalSpend)}</div><div class="label">本月总花费</div></div>
+    <div class="stat-card"><div class="num">${fmtMoney(totalRevenue)}</div><div class="label">本月总销售额</div></div>
+    <div class="stat-card"><div class="num">${fmtNum(totalConversions)}</div><div class="label">转化次数</div></div>
+    <div class="stat-card"><div class="num">${roas}</div><div class="label">整体 ROAS</div></div>
+  `;
+}
+
+function renderGoogleStatsTable(rows) {
+  const tbody = document.getElementById("g-stats-tbody");
+  if (!rows.length) {
+    tbody.innerHTML = `<tr><td colspan="5">该月暂无数据</td></tr>`;
+    return;
+  }
+  tbody.innerHTML = rows
+    .map((r) => {
+      const roas = Number(r.spend) ? (Number(r.revenue) / Number(r.spend)).toFixed(2) : "-";
+      return `<tr>
+        <td>${r.date}</td>
+        <td>${fmtMoney(r.spend)}</td>
+        <td>${fmtMoney(r.revenue)}</td>
+        <td>${fmtNum(r.purchases)}</td>
+        <td>${roas}</td>
+      </tr>`;
+    })
+    .join("");
+}
+
+// ---------------- Google 凭证管理（管理员专属）----------------
+async function loadGoogleCredentials() {
+  const tbody = document.getElementById("g-cred-tbody");
+  tbody.innerHTML = "<tr><td colspan='7'>加载中...</td></tr>";
+  try {
+    const rows = await api("/api/google/credentials");
+    tbody.innerHTML = "";
+    if (!rows.length) {
+      tbody.innerHTML = `<tr><td colspan="7">还没有添加任何 Google Ads 凭证</td></tr>`;
+      return;
+    }
+    rows.forEach((r) => {
+      const tr = document.createElement("tr");
+      tr.innerHTML = `
+        <td>${r.label}</td>
+        <td>${r.login_customer_id || "-"}</td>
+        <td><code>${r.developer_token_preview}</code></td>
+        <td><code>${r.refresh_token_preview}</code></td>
+        <td>${r.is_active ? "启用" : "已停用"}</td>
+        <td>${new Date(r.created_at).toLocaleString()}</td>
+        <td>
+          <button onclick="toggleGoogleCredential(${r.id}, ${!r.is_active})">${r.is_active ? "停用" : "启用"}</button>
+          <button onclick="deleteGoogleCredential(${r.id})">删除</button>
+        </td>
+      `;
+      tbody.appendChild(tr);
+    });
+  } catch (e) {
+    tbody.innerHTML = `<tr><td colspan="7" style="color:red">加载失败：${e.message}</td></tr>`;
+  }
+}
+
+async function addGoogleCredential() {
+  const label = document.getElementById("g-cred-label").value;
+  const developer_token = document.getElementById("g-cred-dev-token").value;
+  const client_id = document.getElementById("g-cred-client-id").value;
+  const client_secret = document.getElementById("g-cred-client-secret").value;
+  const refresh_token = document.getElementById("g-cred-refresh-token").value;
+  const login_customer_id = document.getElementById("g-cred-login-customer-id").value;
+  const box = document.getElementById("g-cred-add-result");
+
+  if (!developer_token || !client_id || !client_secret || !refresh_token) {
+    box.innerText = "请填写 Developer Token / Client ID / Client Secret / Refresh Token";
+    return;
+  }
+  box.innerText = "校验中...（会实际调用 Google Ads API 拉取一次可访问账户列表）";
+  try {
+    const result = await apiJSON("/api/google/credentials", {
+      label, developer_token, client_id, client_secret, refresh_token, login_customer_id,
+    });
+    box.innerText = `添加成功：${result.label}（可访问 ${((result.accessible_customers || []).length)} 个客户账户）`;
+    document.getElementById("g-cred-label").value = "";
+    document.getElementById("g-cred-dev-token").value = "";
+    document.getElementById("g-cred-client-id").value = "";
+    document.getElementById("g-cred-client-secret").value = "";
+    document.getElementById("g-cred-refresh-token").value = "";
+    document.getElementById("g-cred-login-customer-id").value = "";
+    loadGoogleCredentials();
+  } catch (e) {
+    box.innerText = "添加失败：" + e.message;
+  }
+}
+
+async function toggleGoogleCredential(id, newState) {
+  try {
+    await api(`/api/google/credentials/${id}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ is_active: newState }),
+    });
+    loadGoogleCredentials();
+  } catch (e) {
+    alert("操作失败：" + e.message);
+  }
+}
+
+async function deleteGoogleCredential(id) {
+  if (!confirm("确定删除这套 Google Ads 凭证吗？该操作不可恢复。")) return;
+  try {
+    await api(`/api/google/credentials/${id}`, { method: "DELETE" });
+    loadGoogleCredentials();
+  } catch (e) {
+    alert("删除失败：" + e.message);
   }
 }

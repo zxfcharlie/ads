@@ -1,6 +1,7 @@
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 from pydantic import BaseModel
+import calendar
 
 from app.fb_client import FBClient, FBAPIError
 from app.database import get_db
@@ -147,3 +148,91 @@ def upsert_note(account_id: str, body: NoteIn, db: Session = Depends(get_db)):
     row.note = body.note
     db.commit()
     return {"ok": True}
+
+
+# ==================== 数据统计：按月看每天的花费 / 销售额 ====================
+
+
+def _month_range(year: int, month: int) -> tuple[str, str]:
+    last_day = calendar.monthrange(year, month)[1]
+    since = f"{year:04d}-{month:02d}-01"
+    until = f"{year:04d}-{month:02d}-{last_day:02d}"
+    return since, until
+
+
+@router.get("/{account_id}/daily_stats")
+async def daily_stats(
+    account_id: str,
+    year: int,
+    month: int,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    """某个账户在指定月份，逐日的花费/销售额，用于「数据统计」页面"""
+    client = await get_client_for_account(account_id, db, user)
+    since, until = _month_range(year, month)
+    try:
+        rows = await client.get_daily_stats(account_id, since, until)
+    except FBAPIError as e:
+        raise HTTPException(status_code=e.status_code, detail=str(e))
+    return {"data": rows, "since": since, "until": until}
+
+
+@router.get("/stats/daily_summary")
+async def daily_summary(
+    year: int,
+    month: int,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    """
+    把当前用户能看到的所有账户，按天汇总花费/销售额（跨账户求和）。
+    用于「数据统计」页面选"全部账户汇总"时展示。
+    """
+    since, until = _month_range(year, month)
+
+    creds = db.query(BMCredential).filter(BMCredential.is_active == True).all()  # noqa: E712
+    grants_by_cred: dict[int, set[str] | None] = {}
+    if not user.is_admin:
+        grants = db.query(UserAccess).filter(UserAccess.user_id == user.id).all()
+        for g in grants:
+            if g.credential_id not in grants_by_cred:
+                grants_by_cred[g.credential_id] = set()
+            bucket = grants_by_cred[g.credential_id]
+            if g.account_id is None:
+                grants_by_cred[g.credential_id] = None
+            elif bucket is not None:
+                bucket.add(g.account_id)
+
+    by_date: dict[str, dict] = {}
+    errors = []
+
+    for cred in creds:
+        if not user.is_admin and cred.id not in grants_by_cred:
+            continue
+
+        client = FBClient(cred.access_token)
+        try:
+            accounts_res = await client.list_ad_accounts()
+        except FBAPIError as e:
+            errors.append({"credential": cred.label, "error": str(e)})
+            continue
+
+        allowed_accounts = None if user.is_admin else grants_by_cred.get(cred.id)
+
+        for acc in accounts_res.get("data", []):
+            if allowed_accounts is not None and acc["id"] not in allowed_accounts:
+                continue
+            try:
+                rows = await client.get_daily_stats(acc["id"], since, until)
+            except FBAPIError as e:
+                errors.append({"credential": cred.label, "account": acc.get("name", acc["id"]), "error": str(e)})
+                continue
+            for r in rows:
+                d = by_date.setdefault(r["date"], {"date": r["date"], "spend": 0.0, "revenue": 0.0, "purchases": 0.0})
+                d["spend"] += r["spend"]
+                d["revenue"] += r["revenue"]
+                d["purchases"] += r["purchases"]
+
+    data = sorted(by_date.values(), key=lambda x: x["date"])
+    return {"data": data, "since": since, "until": until, "errors": errors}

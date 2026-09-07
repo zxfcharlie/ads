@@ -4,7 +4,7 @@
 <meta charset="UTF-8" />
 <title>广告管理平台</title>
 <meta name="viewport" content="width=device-width, initial-scale=1" />
-<link rel="stylesheet" href="/static/style.css?v=11" />
+<link rel="stylesheet" href="/static/style.css?v=14" />
 </head>
 <body>
 
@@ -53,15 +53,20 @@
         <div class="channel-subnav">
           <button class="subnav-item active" data-tab="accounts">账户总览</button>
           <button class="subnav-item" data-tab="manage">广告管理</button>
+          <button class="subnav-item" data-tab="stats">数据统计</button>
           <button class="subnav-item hidden" data-tab="bm" id="nav-bm">BM账号管理</button>
         </div>
       </div>
 
-      <div class="channel-group is-disabled">
+      <div class="channel-group">
         <div class="channel-header">
           <span class="channel-icon channel-icon-google">G</span>
           <span class="channel-name">Google 广告</span>
-          <span class="badge-soon">即将推出</span>
+        </div>
+        <div class="channel-subnav">
+          <button class="subnav-item" data-tab="g-accounts">账户总览</button>
+          <button class="subnav-item" data-tab="g-stats">数据统计</button>
+          <button class="subnav-item hidden" data-tab="g-credentials" id="nav-g-credentials">凭证管理</button>
         </div>
       </div>
 
@@ -158,6 +163,34 @@
       <div id="manage-result" class="result"></div>
     </section>
 
+    <!-- 数据统计：按月看每天的花费/销售额 -->
+    <section id="tab-stats" class="tab-panel hidden">
+      <div class="panel-header">
+        <h1>数据统计</h1>
+        <div class="header-controls">
+          <label class="field-label">账户</label>
+          <select id="stats-account-select" onchange="loadDailyStats()">
+            <option value="ALL">全部账户汇总</option>
+          </select>
+          <label class="field-label">月份</label>
+          <input id="stats-month" type="month" onchange="loadDailyStats()" />
+          <button class="btn btn-ghost" onclick="loadDailyStats()">查询</button>
+        </div>
+      </div>
+
+      <div class="stats-row" id="stats-summary" style="display:flex;gap:14px;margin-bottom:18px;flex-wrap:wrap"></div>
+
+      <div class="card table-card" style="overflow-x:auto">
+        <table class="grid" id="stats-table">
+          <thead>
+            <tr><th>日期</th><th>花费</th><th>销售额</th><th>购物次数</th><th>ROAS</th></tr>
+          </thead>
+          <tbody id="stats-tbody"></tbody>
+        </table>
+      </div>
+      <div id="stats-result" class="result"></div>
+    </section>
+
     <!-- BM账号管理 -->
     <section id="tab-bm" class="tab-panel hidden">
       <div class="panel-header">
@@ -180,6 +213,84 @@
             <tr><th>BM 名称</th><th>BM ID</th><th>令牌预览</th><th>状态</th><th>创建时间</th><th>操作</th></tr>
           </thead>
           <tbody id="bm-tbody"></tbody>
+        </table>
+      </div>
+    </section>
+
+    <!-- Google 账户总览 -->
+    <section id="tab-g-accounts" class="tab-panel hidden">
+      <div class="panel-header">
+        <h1>Google 广告账户总览</h1>
+        <button class="btn" onclick="loadGoogleAccounts()">刷新</button>
+      </div>
+      <div class="card table-card">
+        <table class="grid">
+          <thead>
+            <tr><th>所属凭证</th><th>账户名称</th><th>客户 ID</th><th>货币</th><th>状态</th></tr>
+          </thead>
+          <tbody id="g-accounts-tbody"></tbody>
+        </table>
+      </div>
+      <div id="g-accounts-errors" class="result"></div>
+    </section>
+
+    <!-- Google 数据统计 -->
+    <section id="tab-g-stats" class="tab-panel hidden">
+      <div class="panel-header">
+        <h1>Google 数据统计</h1>
+        <div class="header-controls">
+          <label class="field-label">账户</label>
+          <select id="g-stats-account-select">
+            <option value="ALL">全部账户汇总</option>
+          </select>
+          <label class="field-label">月份</label>
+          <input id="g-stats-month" type="month" onchange="loadGoogleDailyStats()" />
+          <button class="btn btn-ghost" onclick="loadGoogleDailyStats()">查询</button>
+        </div>
+      </div>
+
+      <div class="stats-row" id="g-stats-summary" style="display:flex;gap:14px;margin-bottom:18px;flex-wrap:wrap"></div>
+
+      <div class="card table-card" style="overflow-x:auto">
+        <table class="grid">
+          <thead>
+            <tr><th>日期</th><th>花费</th><th>销售额</th><th>转化次数</th><th>ROAS</th></tr>
+          </thead>
+          <tbody id="g-stats-tbody"></tbody>
+        </table>
+      </div>
+      <div id="g-stats-result" class="result"></div>
+    </section>
+
+    <!-- Google 凭证管理（管理员专属） -->
+    <section id="tab-g-credentials" class="tab-panel hidden">
+      <div class="panel-header">
+        <h1>Google Ads 凭证管理</h1>
+        <button class="btn" onclick="loadGoogleCredentials()">刷新</button>
+      </div>
+      <div class="card">
+        <h4>新增一套 OAuth2 凭证</h4>
+        <p style="font-size:12px;color:#888;margin-top:-4px">
+          需要先在 Google Cloud 建 OAuth2 客户端、在 Google Ads 后台申请 developer token，
+          并走一次 OAuth2 授权流程换出 refresh token（见下方 README 链接）。
+        </p>
+        <div class="form-row">
+          <input id="g-cred-label" placeholder="名称/备注（留空自动识别）" />
+          <input id="g-cred-dev-token" placeholder="Developer Token" />
+          <input id="g-cred-client-id" placeholder="Client ID" style="min-width:220px" />
+          <input id="g-cred-client-secret" placeholder="Client Secret" style="min-width:180px" />
+          <input id="g-cred-refresh-token" placeholder="Refresh Token" style="min-width:220px" />
+          <input id="g-cred-login-customer-id" placeholder="MCC 经理账户ID（可选）" />
+          <button class="btn" onclick="addGoogleCredential()">校验并保存</button>
+        </div>
+        <div id="g-cred-add-result" class="result"></div>
+      </div>
+      <div class="card table-card">
+        <table class="grid">
+          <thead>
+            <tr><th>名称</th><th>MCC ID</th><th>Developer Token</th><th>Refresh Token</th><th>状态</th><th>创建时间</th><th>操作</th></tr>
+          </thead>
+          <tbody id="g-cred-tbody"></tbody>
         </table>
       </div>
     </section>
@@ -219,6 +330,6 @@
   </main>
 </div>
 
-<script src="/static/app.js?v=11"></script>
+<script src="/static/app.js?v=14"></script>
 </body>
 </html>

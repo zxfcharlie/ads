@@ -10,7 +10,7 @@ from app.database import Base, engine, SessionLocal, get_db
 from app.auth import create_access_token, hash_password, verify_password
 from app.models import User
 from app.deps import get_current_user, require_admin
-from app.routers import accounts, campaigns, insights, credentials, targeting, users
+from app.routers import accounts, campaigns, insights, credentials, targeting, users, google, google_credentials
 
 Base.metadata.create_all(bind=engine)
 
@@ -93,9 +93,11 @@ app.include_router(accounts.router, dependencies=[Depends(get_current_user)])
 app.include_router(campaigns.router, dependencies=[Depends(get_current_user)])
 app.include_router(insights.router, dependencies=[Depends(get_current_user)])
 app.include_router(targeting.router, dependencies=[Depends(get_current_user)])
+app.include_router(google.router, dependencies=[Depends(get_current_user)])
 
-# 管理员专属路由：BM 令牌管理、用户审核与权限分配
+# 管理员专属路由：BM/Google 令牌管理、用户审核与权限分配
 app.include_router(credentials.router, dependencies=[Depends(require_admin)])
+app.include_router(google_credentials.router, dependencies=[Depends(require_admin)])
 app.include_router(users.router, dependencies=[Depends(require_admin)])
 
 

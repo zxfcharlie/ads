@@ -208,6 +208,14 @@ input:focus, select:focus { border-color: var(--color-primary); }
 .link-muted:hover { text-decoration: underline; }
 .hint-text { font-size: 12px; color: #9ca3af; }
 
+.stat-card {
+  background: var(--color-surface); border-radius: var(--radius-md);
+  padding: 16px 20px; min-width: 150px; box-shadow: var(--shadow-sm);
+  border: 1px solid var(--color-border);
+}
+.stat-card .num { font-size: 22px; font-weight: 700; color: var(--color-primary-dark); }
+.stat-card .label { font-size: 12px; color: var(--color-text-muted); margin-top: 2px; }
+
 /* ============ Chip picker (countries / interests) ============ */
 .picker-field { margin: 10px 0; position: relative; }
 .picker-field .field-label { display: block; margin-bottom: 4px; font-weight: 600; color: var(--color-text); font-size: 13px; }

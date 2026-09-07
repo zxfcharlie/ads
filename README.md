@@ -1,15 +1,23 @@
 # 广告管理平台（Docker 部署）
 
-一个基于 FastAPI 的自托管多渠道广告管理平台。目前已接入 **Meta（Facebook）广告** 全套功能，界面预留了 Google、TikTok 等渠道的入口位置，后续接入新渠道时只需在侧边栏「渠道」列表里加一组，不需要推倒重来。
+一个基于 FastAPI 的自托管多渠道广告管理平台。目前已接入 **Meta（Facebook）广告**全套功能和 **Google 广告**的账户查看/数据统计能力，界面预留了 TikTok 等渠道的入口位置，后续接入新渠道时只需在侧边栏「渠道」列表里加一组，不需要推倒重来。
 
-支持能力（当前均为 Meta 渠道下的功能）：
+支持能力：
 
-- 🎨 **侧边栏式多渠道架构**：左侧「渠道」列表里，Meta 广告是一个完整分组（账户总览/广告管理/BM账号管理三个子页面），Google/TikTok 广告先以"即将推出"占位展示
+**Meta（Facebook）渠道**
 - 🔐 **多用户账号 + 审核制**：任何人可以自己注册，但默认待审核、零权限；管理员账号（由 `.env` 自动同步生成）负责审核通过和分配权限
 - 🎯 **按 BM / 按账户精细授权**：管理员给每个用户单独分配"某个 BM 的全部账户"或"某个 BM 下的某一个账户"，权限校验在后端强制执行
 - 🏢 **多 Business Manager 管理**（管理员专属）：一个「BM账号维护配置表」，只需粘贴系统用户令牌，BM 名称和 ID 自动识别，系统自动按账户归属选用正确令牌发起操作
 - 📋 **账户总览**：聚合展示当前用户有权限查看的广告账户，标注花费、花费上限、剩余可花费额度、所属 BM，可打备注
 - 📊 **广告管理**：先选 BM 再选广告账户，然后逐层下钻（系列 → 组 → 广告），字段对齐 Facebook 原生 Ads Manager（花费、购物、ROAS、CPM、视频播放等）；支持排序/筛选、表格内直接改预算、暂停/启用、复制；新建广告时系列+组+广告一次性整套创建成 PAUSED 草稿，核对无误后再统一发布上线；国家/主页/像素/兴趣词等定向字段全部从 Facebook 实时读取
+- 📈 **数据统计**：按月查看某个账户（或全部账户汇总）每天的花费、销售额、购物次数、ROAS
+
+**Google 广告渠道**（新接入，视图功能对齐 Meta，广告创建/管理暂未实现）
+- 📋 **账户总览**：聚合展示已配置 Google Ads 凭证下的所有客户账户
+- 📈 **数据统计**：按月查看某个账户（或全部账户汇总）每天的花费、销售额、转化次数、ROAS，跟 Meta 那边的数据统计页面是同一套交互
+- 🔑 **凭证管理**（管理员专属）：走 OAuth2 refresh token 的方式接入，不是像 Meta 那样一个令牌就够，见下文说明
+
+- 🎨 **侧边栏式多渠道架构**：左侧「渠道」列表里，Meta/Google 各是一个完整分组，TikTok 广告先以"即将推出"占位展示
 - 📝 操作日志会写入本地 SQLite（`data/panel.db`），便于审计
 
 > 这是一个可用的**脚手架 / 起点**，覆盖了 Marketing API 最核心的流程。生产环境请按需加固鉴权、审批流程、多用户权限等。
@@ -61,17 +69,27 @@ fb-ads-panel/
 ├── requirements.txt
 ├── .env.example
 ├── app/
-│   ├── main.py           # FastAPI 入口 + 简单口令鉴权
-│   ├── config.py         # 环境变量配置
-│   ├── database.py       # SQLite 连接
-│   ├── models.py         # 本地表：账户备注、操作日志
-│   ├── fb_client.py       # Graph API 封装（账户/系列/广告组/素材/广告/洞察）
+│   ├── main.py               # FastAPI 入口 + 注册/登录 + 路由挂载
+│   ├── config.py             # 环境变量配置
+│   ├── database.py           # SQLite 连接
+│   ├── models.py             # 全部数据表：BM/Google 凭证、用户、权限、备注、日志
+│   ├── auth.py                # JWT 签发校验 + 密码哈希（标准库实现，无额外依赖）
+│   ├── deps.py                 # get_current_user / require_admin 依赖注入
+│   ├── fb_client.py            # Meta Graph API 封装（账户/系列/广告组/素材/广告/洞察）
+│   ├── resolver.py             # 按 account_id 找到该用哪个 BM 凭证 + 权限校验
+│   ├── google_client.py        # Google Ads API 封装（OAuth2 + GAQL 查询）
+│   ├── google_resolver.py      # 按 customer_id 找到该用哪个 Google 凭证
 │   └── routers/
-│       ├── accounts.py    # 账户列表、详情、花费上限
-│       ├── campaigns.py   # Campaign/AdSet/Creative/Ad 增删改
-│       └── insights.py    # 原始数据洞察（当前 UI 未使用，仅供 API 直接调用）
+│       ├── accounts.py         # Meta 账户列表、详情、花费上限、数据统计
+│       ├── campaigns.py        # Meta Campaign/AdSet/Creative/Ad 增删改、整套草稿创建
+│       ├── insights.py         # Meta 原始数据洞察（当前 UI 未使用，仅供 API 直接调用）
+│       ├── targeting.py        # Meta 定向数据：像素/主页/兴趣词搜索
+│       ├── credentials.py      # Meta BM 凭证管理（管理员专属）
+│       ├── google.py            # Google 账户总览、数据统计、系列概览
+│       ├── google_credentials.py  # Google 凭证管理（管理员专属）
+│       └── users.py            # 用户审核、权限分配（管理员专属）
 └── static/
-    ├── index.html         # 看板页面
+    ├── index.html             # 看板页面（侧边栏多渠道布局）
     ├── style.css
     └── app.js
 ```
@@ -108,6 +126,8 @@ fb-ads-panel/
 | GET | `/api/accounts/{id}/interests?q=` | 搜索 Facebook 兴趣定向库 |
 | POST | `/api/accounts/{id}/objects/{object_id}/status` | 通用启停接口（Campaign/AdSet/Ad 均可用） |
 | GET | `/api/accounts/{id}/insights` | 按天/按系列的原始数据洞察（**当前 UI 未使用，仅供 API 直接调用**） |
+| GET | `/api/accounts/{id}/daily_stats?year=&month=` | 某账户指定月份逐日花费/销售额，供「数据统计」用 |
+| GET | `/api/accounts/stats/daily_summary?year=&month=` | 当前用户能看到的所有账户，按天汇总花费/销售额 |
 | POST | `/api/accounts/{id}/spend_cap` | 设置花费上限，传 0 = 清除上限（**当前 UI 未使用，仅供 API 直接调用**） |
 | GET/POST | `/api/credentials`（**管理员专属**） | BM 凭证 列表/新增（新增时校验令牌有效性，自动识别 BM 名称/ID） |
 | PATCH/DELETE | `/api/credentials/{id}`（**管理员专属**） | 更新（启停/改令牌）/删除某个 BM 凭证 |
@@ -117,6 +137,12 @@ fb-ads-panel/
 | DELETE | `/api/admin/users/{id}`（**管理员专属**） | 删除用户（拒绝申请 / 彻底移除账号） |
 | GET/POST | `/api/admin/users/{id}/access`（**管理员专属**） | 查看/新增该用户的 BM·账户访问授权 |
 | DELETE | `/api/admin/access/{access_id}`（**管理员专属**） | 撤销一条访问授权 |
+| GET | `/api/google/accounts` | Google Ads 账户总览（聚合所有已配置凭证下的客户账户） |
+| GET | `/api/google/accounts/{customer_id}/campaigns` | 某账户的广告系列列表（只读概览，名称/状态/预算） |
+| GET | `/api/google/accounts/{customer_id}/daily_stats?year=&month=` | 某账户指定月份逐日花费/销售额 |
+| GET | `/api/google/stats/daily_summary?year=&month=` | 所有已配置 Google 账户按天汇总花费/销售额 |
+| GET/POST | `/api/google/credentials`（**管理员专属**） | Google Ads 凭证 列表/新增（新增时会实际调用 API 校验） |
+| PATCH/DELETE | `/api/google/credentials/{id}`（**管理员专属**） | 更新（启停/改凭证）/删除某套 Google Ads 凭证 |
 
 ---
 
@@ -183,7 +209,19 @@ Facebook 原始 `balance` 字段的含义因账户资金模式而异（预付费
 
 **报错信息更详细了**：调用 Facebook API 失败时，除了顶层的 `message`（经常很笼统，比如"Invalid parameter"），面板现在还会把 `error_user_msg`（用户可读提示）、`error_subcode`（子错误码）、`fbtrace_id`（可拿去找 Facebook 支持排查）一并显示出来，方便下次报错时一眼看出具体是哪个字段的问题。
 
-每一行都支持**暂停/启用**一键切换和**复制**（调用 Facebook 原生 `/copies` 深拷贝接口，复制出来的默认是 PAUSED，避免误开花钱；AdSet/Campaign 复制时会连同子对象一起复制）。
+每一行都支持**暂停/启用**一键切换和**复制**（调用 Facebook 原生 `/copies` 接口，复制出来的默认是 PAUSED，避免误开花钱）。
+
+**关于复制的对象数量限制**：Facebook 的深度复制（连同子对象一起复制）有个硬性限制——系列+组+广告加起来总共不能超过 **3 个对象**，超过会直接报错（`子错误码 1885194`）。因此复制 Campaign/AdSet 时会给你两个选项：
+- **只复制本身**：永远不会超限，但不会带上子对象，需要自己再进去手动补建
+- **连同子对象一起复制**：适合结构简单（比如 1 个系列 + 1 个组 + 1 个广告）的情况，超过 3 个对象会失败
+
+广告（Ad）本身没有子对象，不受这个限制，复制时只有一个确认按钮。
+
+**已知报错的友好提示**：Facebook API 报错经常是一串英文加错误码，看不出具体该怎么办。面板内置了几个已知子错误码的处理建议，报错时会在原始错误信息下面额外显示一行"💡 处理建议"：
+- `1885194`（深度复制对象数超限）→ 提示改选"只复制本身"
+- `2446604`（视频缩略图失效）→ 这是**被复制的原视频广告本身**的缩略图在 Facebook 那边已经失效了，跟复制操作无关，也不是本工具能绕过的问题；建议先去 Facebook Ads Manager 打开原广告重新保存/替换缩略图再重试，或者放弃复制、改用「新建广告」重新上传素材创建
+
+以后遇到新的报错子错误码，可以在 `static/app.js` 的 `FB_ERROR_TIPS` 里加一条。
 
 **排序 / 筛选**（纯前端处理，当前这一层的数据已经在浏览器里，不用再打接口）：
 - 点任意列的表头即可按该列排序，再点一次切换升序/降序
@@ -194,21 +232,36 @@ Facebook 原始 `balance` 字段的含义因账户资金模式而异（预付费
 
 ---
 
-## 八、如何接入新渠道（Google / TikTok 等）
+## 八、Google 广告渠道：怎么拿到接入所需的凭证
 
-当前架构已经按"多渠道"的方式搭好了骨架，Meta 只是其中一个渠道分组。接入新渠道时建议按这个模式走：
+跟 Meta 一个系统用户令牌就够不一样，Google Ads API 需要四样东西凑齐才能用：
+
+1. **Developer Token**：去 [Google Ads API Center](https://ads.google.com/aw/apicenter) 申请（新申请下来的 token 默认是"测试账户"级别权限，只能操作测试账户；要操作真实账户需要额外申请"基本使用权限"，Google 会审核，可能要等几天）
+2. **Client ID / Client Secret**：去 [Google Cloud Console](https://console.cloud.google.com/) 建一个项目，启用 "Google Ads API"，创建一个 OAuth 2.0 客户端 ID（类型选"桌面应用"最省事）
+3. **Refresh Token**：拿着上面这对 Client ID/Secret，走一次 OAuth2 授权流程换出来。最简单的办法是用 Google 官方给的脚本：[generate_user_credentials.py](https://github.com/googleads/google-ads-python/blob/main/examples/authentication/generate_user_credentials.py)，在你自己电脑上跑一次，浏览器会弹出 Google 登录授权页，授权完脚本会打印出 refresh token
+4. **MCC 经理账户 ID（可选）**：如果这个 Google 账号是通过一个"经理账户"（MCC）去管理具体的广告客户账户，需要填这个 MCC 的 ID（登录 Google Ads 后台，左上角能看到，格式类似 `123-456-7890`，面板里不用带横线也行，会自动去掉）
+
+拿到这四样后，用管理员账号登录面板，侧边栏「Google 广告 → 凭证管理」里粘贴进去，点"校验并保存"——保存前会真的调用一次 Google Ads API 拉取可访问账户列表，确认凭证有效才会存库。
+
+**当前 Google 渠道做到什么程度**：账户总览、按月数据统计这两个"看数据"的页面，跟 Meta 那边的交互和字段基本一致；广告系列/广告组/广告的创建和管理（对应 Meta 的"广告管理"那一整套）还没做，这块工作量接近再做一遍 Meta 的"广告管理"模块，需要的话可以下一步继续。另外 Google 目前还没有像 Meta 那样做"按用户分配具体账户权限"——任何审核通过的用户都能看到所有已配置的 Google 账户，只有凭证管理本身是管理员专属。
+
+---
+
+## 九、如何接入更多渠道（TikTok 等）
+
+Google 的接入方式就是照着这个模式做的，再接入新渠道（比如 TikTok）可以照抄同一套：
 
 **前端**：
-- 侧边栏里把对应渠道的 `.channel-group.is-disabled` 拿掉 `is-disabled`，`channel-header` 加上点击展开逻辑，仿照 Meta 那样在下面挂一组 `.channel-subnav` 子页面按钮
+- 侧边栏里把对应渠道的 `.channel-group.is-disabled` 拿掉 `is-disabled`，仿照 Google 那样在下面挂一组 `.channel-subnav` 子页面按钮
 - 新渠道自己的页面内容放到新的 `<section id="tab-xxx" class="tab-panel hidden">`，复用现有的 `.card`、`.grid`、`.btn` 等样式类，视觉上会自动保持一致
 
 **后端**：
-- 参照 `app/fb_client.py` 的模式，新建一个 `app/google_client.py`（或对应渠道），封装该平台的账户/广告系列/广告组/广告/洞察等 API 调用
-- 参照 `app/models.py` 里的 `BMCredential`，为新渠道建一张独立的凭证表（比如 Google Ads 的 refresh token / developer token），不要复用 Meta 的表，因为字段结构、鉴权方式通常都不一样
-- 参照 `app/resolver.py` 的模式，为新渠道写一个"按账户 ID 找到该用哪个凭证"的 resolver
-- 新建 `app/routers/google_xxx.py`，接口路径建议加渠道前缀区分，如 `/api/google/accounts`、`/api/google/campaigns` 等，避免和 Meta 的 `/api/accounts/...` 混在一起
+- 参照 `app/google_client.py` 的模式，新建一个 `app/tiktok_client.py`，封装该平台的账户/广告系列/广告组/广告/洞察等 API 调用
+- 参照 `app/models.py` 里的 `GoogleCredential`，为新渠道建一张独立的凭证表，不要复用别的渠道的表，因为字段结构、鉴权方式通常都不一样
+- 参照 `app/google_resolver.py` 的模式，为新渠道写一个"按账户 ID 找到该用哪个凭证"的 resolver
+- 新建 `app/routers/tiktok.py` 和 `app/routers/tiktok_credentials.py`（管理员专属那部分单独拆一个文件，方便在 `main.py` 里分别挂不同权限），接口路径加渠道前缀区分，如 `/api/tiktok/accounts`
 
-## 九、多用户 + 审核制 + 按账户分权限
+## 十、多用户 + 审核制 + 按账户分权限
 
 面板现在支持多人使用，不再是单一管理员账号：
 
@@ -232,7 +285,7 @@ Facebook 原始 `balance` 字段的含义因账户资金模式而异（预付费
 
 ---
 
-## 十、后续可扩展方向
+## 十一、后续可扩展方向
 
 - Webhook 接收 Facebook 账户状态变更、预算耗尽等通知
 - 定时任务：每日自动拉取并落库 insights，做历史趋势分析
@@ -241,7 +294,7 @@ Facebook 原始 `balance` 字段的含义因账户资金模式而异（预付费
 
 ---
 
-## 十一、安全提醒
+## 十二、安全提醒
 
 - 每个 BM 系统用户令牌权限很高，可直接花钱投放广告，请勿泄露、不要提交到公开仓库（`.env` 已在 `.gitignore` 里，令牌本身存在 SQLite `data/panel.db` 中，同样注意不要把 `data/` 目录提交或公开）。
 - 建议只通过 Apache/Nginx 加 HTTPS 之后对外暴露，不要把容器端口直接绑定在公网网卡上（`docker-compose.yml` 里已改成 `127.0.0.1:8811:8000`，宿主机只在本机回环地址监听 8811，AWS Security Group 无需为此端口开放任何入站规则）。

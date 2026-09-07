@@ -85,3 +85,24 @@ class UserAccess(Base):
     credential_id = Column(Integer, index=True)   # 对应 BMCredential.id
     account_id = Column(String, nullable=True)    # act_xxx，留空代表整个 BM
     created_at = Column(DateTime, default=datetime.utcnow)
+
+
+class GoogleCredential(Base):
+    """
+    Google Ads 凭证维护配置表（对应 Meta 的 BMCredential）。
+    Google Ads API 走 OAuth2 refresh token 的模式，不像 Meta 系统用户令牌那样一个
+    字符串就够，需要 developer_token / client_id / client_secret / refresh_token
+    这四样，外加可选的 login_customer_id（如果这个 refresh token 挂在一个 MCC 经理账户下）。
+    """
+    __tablename__ = "google_credentials"
+
+    id = Column(Integer, primary_key=True, index=True)
+    label = Column(String, index=True)              # 名称/备注，如 "客户A - Google Ads"
+    developer_token = Column(String)
+    client_id = Column(String)
+    client_secret = Column(String)
+    refresh_token = Column(Text)
+    login_customer_id = Column(String, default="")  # MCC 经理账户 ID，可选，纯数字不带横线
+    is_active = Column(Boolean, default=True)
+    created_at = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)

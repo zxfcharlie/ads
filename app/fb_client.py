@@ -109,6 +109,37 @@ class FBClient:
 
         return await self._get(f"{account_id}/insights", params)
 
+    async def get_daily_stats(self, account_id: str, since: str, until: str):
+        """
+        按天返回指定日期区间（含首尾）的花费/销售额等，用于「数据统计」按月查看。
+        since/until 格式 YYYY-MM-DD。
+        """
+        fields = (
+            "spend,impressions,clicks,actions,action_values,"
+            "purchase_roas,date_start,date_stop"
+        )
+        params = {
+            "fields": fields,
+            "time_range": _to_json({"since": since, "until": until}),
+            "time_increment": 1,
+            "level": "account",
+            "limit": 500,
+        }
+        result = await self._get(f"{account_id}/insights", params)
+        rows = []
+        for row in result.get("data", []):
+            m = _parse_metrics_row(row)
+            rows.append({
+                "date": row.get("date_start"),
+                "spend": m["spend"],
+                "revenue": m["purchase_value"],
+                "purchases": m["purchases"],
+                "roas": m["roas"],
+                "impressions": m["impressions"],
+                "clicks": m["clicks"],
+            })
+        return rows
+
     async def get_insights_by_level(
         self,
         account_id: str,
